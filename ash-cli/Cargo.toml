@@ -1,0 +1,17 @@
+[package]
+name = "ash"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ash"
+path = "src/main.rs"
+
+[dependencies]
+ash-lexer   = { path = "../crates/ash-lexer" }
+ash-parser  = { path = "../crates/ash-parser" }
+ash-hir     = { path = "../crates/ash-hir" }
+ash-typeck  = { path = "../crates/ash-typeck" }
+ash-interp  = { path = "../crates/ash-interp" }
+ash-codegen = { path = "../crates/ash-codegen" }
+ash-stdlib  = { path = "../crates/ash-stdlib" }

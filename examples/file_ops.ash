@@ -1,0 +1,6 @@
+file.write("/tmp/ash_test.txt", "hello from ash\n")
+content = file.read("/tmp/ash_test.txt")
+println(content ?? "file not found")
+println(file.exists("/tmp/ash_test.txt"))
+file.rm("/tmp/ash_test.txt")
+println(file.exists("/tmp/ash_test.txt"))

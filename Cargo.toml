@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "crates/ash-lexer",
+    "crates/ash-parser",
+    "crates/ash-hir",
+    "crates/ash-typeck",
+    "crates/ash-interp",
+    "crates/ash-codegen",
+    "crates/ash-stdlib",
+    "ash-cli",
+]
+resolver = "2"

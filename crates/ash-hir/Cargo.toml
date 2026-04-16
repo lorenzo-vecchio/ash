@@ -1,0 +1,8 @@
+[package]
+name = "ash-hir"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ash-lexer = { path = "../ash-lexer" }
+ash-parser = { path = "../ash-parser" }

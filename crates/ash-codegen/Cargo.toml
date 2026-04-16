@@ -1,0 +1,11 @@
+[package]
+name = "ash-codegen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ash-lexer  = { path = "../ash-lexer" }
+ash-parser = { path = "../ash-parser" }
+ash-hir    = { path = "../ash-hir" }
+ash-typeck = { path = "../ash-typeck" }
+ash-stdlib = { path = "../ash-stdlib" }
