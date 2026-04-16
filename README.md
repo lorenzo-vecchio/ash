@@ -38,6 +38,89 @@ cargo build --release
 
 ---
 
+## Installation & Building
+
+### Prerequisites
+
+- **Rust toolchain** (stable, ≥ 1.75) — install via [rustup](https://rustup.rs):
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+- **clang** — only required for the native-compilation path (`ash build`). The interpreter (`ash run`) has no external dependencies.
+  ```bash
+  # macOS
+  xcode-select --install
+  # Ubuntu / Debian
+  sudo apt-get install clang
+  # Fedora / RHEL
+  sudo dnf install clang
+  ```
+
+### Clone & build from source
+
+```bash
+git clone https://github.com/yourusername/ash.git
+cd ash
+cargo build --release
+```
+
+The `ash` binary is produced at `target/release/ash`. You can run it in place or copy it onto your `PATH`:
+
+```bash
+# Add to PATH for the current session
+export PATH="$PWD/target/release:$PATH"
+
+# Or install it permanently via cargo
+cargo install --path ash-cli
+```
+
+### Verifying the installation
+
+```bash
+ash --version
+ash repl           # open an interactive REPL
+ash run examples/hello.ash
+```
+
+### CLI reference
+
+| Command | Description |
+|---------|-------------|
+| `ash run <file>` | Interpret a `.ash` file — zero build step, instant startup |
+| `ash build <file> -o <out>` | Compile to a native binary via LLVM IR → clang |
+| `ash check <file>` | Type-check without running |
+| `ash fmt <file>` | Auto-format in place |
+| `ash repl` | Launch the interactive REPL |
+| `ash docs <namespace>` | Browse stdlib docs (e.g. `ash docs math`) |
+
+---
+
+## Continuous Integration
+
+The repository ships a [GitHub Actions](https://docs.github.com/en/actions) workflow at `.github/workflows/ci.yml` that runs automatically on every push and pull request to `main`.
+
+**What the pipeline does:**
+
+1. **Checkout** — fetches the full repo with `actions/checkout@v4`.
+2. **Install Rust** — pins the stable toolchain and enables the `clippy` and `rustfmt` components via `dtolnay/rust-toolchain@stable`.
+3. **Cache** — caches `~/.cargo/registry` and `target/` keyed on `Cargo.lock` so incremental builds are fast.
+4. **Format check** — runs `cargo fmt --all -- --check`; fails if any file is not formatted.
+5. **Clippy** — runs `cargo clippy --workspace --all-targets -- -D warnings`; treats all warnings as errors.
+6. **Build** — `cargo build --release --workspace` to verify the whole workspace compiles cleanly.
+7. **Test** — `cargo test --workspace` runs all unit and integration tests across every crate.
+8. **Upload artifact** — the compiled `ash` binary is uploaded as a build artifact for download directly from the Actions run.
+
+To run the same checks locally before pushing:
+
+```bash
+cargo fmt --all -- --check   # formatting
+cargo clippy --workspace     # lints
+cargo build --release        # build
+cargo test --workspace       # tests
+```
+
+---
+
 ## A taste of the language
 
 ```ash
