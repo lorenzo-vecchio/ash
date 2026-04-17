@@ -253,8 +253,6 @@ fn cmd_fmt(args: &[String]) {
 fn format_source(src: &str) -> String {
     let mut out = Vec::new();
     let mut prev_blank = false;
-    let mut in_top_level_def = false;
-
     for line in src.lines() {
         let trimmed = line.trim_end();
 
@@ -277,7 +275,6 @@ fn format_source(src: &str) -> String {
 
         prev_blank = trimmed.is_empty();
         out.push(normalized);
-        in_top_level_def = is_def;
     }
 
     // Ensure trailing newline
