@@ -6,6 +6,7 @@
 //!   ash check <file.ash>            Type-check only, no execution
 //!   ash fmt   <file.ash>            Format source file
 //!   ash docs  [namespace]           Show stdlib documentation
+//!   ash test  <file.ash>            Run all test_* functions
 //!   ash repl                        Start interactive REPL
 //!   ash version                     Print version info
 
@@ -28,6 +29,7 @@ fn main() {
         "check" => cmd_check(&args[2..]),
         "fmt" => cmd_fmt(&args[2..]),
         "docs" => cmd_docs(&args[2..]),
+        "test" => cmd_test(&args[2..]),
         "repl" => cmd_repl(),
         "version" | "--version" | "-V" => cmd_version(),
         "help" | "--help" | "-h" => print_usage(),
@@ -48,6 +50,7 @@ fn print_usage() {
     println!("  ash check <file.ash>             Type-check only");
     println!("  ash fmt   <file.ash>             Format source file");
     println!("  ash docs  [namespace]            Show stdlib docs");
+    println!("  ash test  <file.ash>             Run test_* functions");
     println!("  ash repl                         Interactive REPL");
     println!("  ash version                      Show version");
     println!();
@@ -308,6 +311,73 @@ fn cmd_docs(args: &[String]) {
         println!("    {}", f.doc);
     }
     println!();
+}
+
+// ─── test ─────────────────────────────────────────────────────────────────────
+
+fn cmd_test(args: &[String]) {
+    use ash_parser::ast::StmtKind;
+
+    let path = require_file(args, "test");
+    let source = read_source(&path);
+    let program = frontend(&source, &path);
+
+    // Collect names of all top-level test_* functions
+    let test_names: Vec<String> = program
+        .stmts
+        .iter()
+        .filter_map(|s| {
+            if let StmtKind::FnDef(f) = &s.kind {
+                if f.name.starts_with("test_") {
+                    return Some(f.name.clone());
+                }
+            }
+            None
+        })
+        .collect();
+
+    if test_names.is_empty() {
+        println!("ash test: no test_* functions found in {}", path.display());
+        return;
+    }
+
+    println!(
+        "ash test: running {} test(s) in {}",
+        test_names.len(),
+        path.display()
+    );
+    println!();
+
+    // Load the program into an interpreter so all definitions are available
+    let mut interp = ash_interp::Interpreter::new();
+    if let Err(e) = interp.run_program(&program) {
+        eprintln!("{}:runtime: {}", path.display(), e.msg);
+        process::exit(1);
+    }
+
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+
+    for name in &test_names {
+        match interp.call_by_name(name) {
+            Ok(_) => {
+                println!("  \x1b[32mPASS\x1b[0m {name}");
+                passed += 1;
+            }
+            Err(e) => {
+                println!("  \x1b[31mFAIL\x1b[0m {name}");
+                println!("       {}", e.msg);
+                failed += 1;
+            }
+        }
+    }
+
+    println!();
+    println!("ash test: {} passed, {} failed", passed, failed);
+
+    if failed > 0 {
+        process::exit(1);
+    }
 }
 
 // ─── repl ─────────────────────────────────────────────────────────────────────

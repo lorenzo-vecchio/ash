@@ -1553,6 +1553,15 @@ impl Interpreter {
         self.run(program)
     }
 
+    /// Call a function by name with no arguments (used by the test runner).
+    pub fn call_by_name(&mut self, name: &str) -> InterpResult<Value> {
+        let func = self
+            .env
+            .get(name)
+            .ok_or_else(|| InterpError::runtime(format!("function '{name}' not found")))?;
+        self.call_fn(func, vec![])
+    }
+
     // -- statements -----------------------------------------------------------
 
     fn exec_stmt(&mut self, stmt: &Stmt) -> InterpResult<Value> {
