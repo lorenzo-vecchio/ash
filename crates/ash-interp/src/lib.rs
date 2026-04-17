@@ -461,6 +461,84 @@ impl Env {
             })),
             closure: Env::default(),
         }));
+
+        // -- Built-in Option/Result constructors -----------------------------
+        self.define("none", Value::Option(None));
+        self.define("None", Value::Option(None));
+        self.define("Some", Value::Fn(FnValue {
+            name: Some("Some".into()), params: vec![],
+            body: FnBody::Native(std::sync::Arc::new(|args| {
+                let v = args.first().cloned().unwrap_or(Value::Unit);
+                Ok(Value::Option(Some(Box::new(v))))
+            })),
+            closure: Env::default(),
+        }));
+        self.define("Ok", Value::Fn(FnValue {
+            name: Some("Ok".into()), params: vec![],
+            body: FnBody::Native(std::sync::Arc::new(|args| {
+                let v = args.first().cloned().unwrap_or(Value::Unit);
+                Ok(Value::Ok(Box::new(v)))
+            })),
+            closure: Env::default(),
+        }));
+        self.define("Err", Value::Fn(FnValue {
+            name: Some("Err".into()), params: vec![],
+            body: FnBody::Native(std::sync::Arc::new(|args| {
+                let v = args.first().cloned().unwrap_or(Value::Unit);
+                Ok(Value::Err(Box::new(v)))
+            })),
+            closure: Env::default(),
+        }));
+
+        // -- env.set ---------------------------------------------------------
+        self.define("env.set", Value::Fn(FnValue {
+            name: Some("env.set".into()), params: vec![],
+            body: FnBody::Native(std::sync::Arc::new(|args| {
+                if args.len() < 2 { return Err(InterpError::runtime("env.set requires key and value")); }
+                match (&args[0], &args[1]) {
+                    (Value::Str(k), Value::Str(v)) => {
+                        std::env::set_var(k, v);
+                        Ok(Value::Unit)
+                    }
+                    _ => Err(InterpError::runtime("env.set requires string key and value")),
+                }
+            })),
+            closure: Env::default(),
+        }));
+
+        // -- file.append -----------------------------------------------------
+        self.define("file.append", Value::Fn(FnValue {
+            name: Some("file.append".into()), params: vec![],
+            body: FnBody::Native(std::sync::Arc::new(|args| {
+                use std::io::Write;
+                if args.len() < 2 { return Err(InterpError::runtime("file.append requires path and data")); }
+                match (&args[0], &args[1]) {
+                    (Value::Str(path), Value::Str(data)) => {
+                        let mut f = std::fs::OpenOptions::new()
+                            .append(true).create(true).open(path)
+                            .map_err(|e| InterpError::runtime(e.to_string()))?;
+                        f.write_all(data.as_bytes()).map_err(|e| InterpError::runtime(e.to_string()))?;
+                        Ok(Value::Unit)
+                    }
+                    _ => Err(InterpError::runtime("file.append requires string path and data")),
+                }
+            })),
+            closure: Env::default(),
+        }));
+
+        // -- math.clamp ------------------------------------------------------
+        self.define("math.clamp", Value::Fn(FnValue {
+            name: Some("math.clamp".into()), params: vec![],
+            body: FnBody::Native(std::sync::Arc::new(|args| {
+                if args.len() < 3 { return Err(InterpError::runtime("math.clamp requires 3 args")); }
+                match (&args[0], &args[1], &args[2]) {
+                    (Value::Float(x), Value::Float(lo), Value::Float(hi)) => Ok(Value::Float(x.clamp(*lo, *hi))),
+                    (Value::Int(x), Value::Int(lo), Value::Int(hi)) => Ok(Value::Int((*x).clamp(*lo, *hi))),
+                    _ => Err(InterpError::runtime("math.clamp requires numbers"))
+                }
+            })),
+            closure: Env::default(),
+        }));
     }
 }
 
@@ -848,9 +926,17 @@ impl Interpreter {
             ExprKind::Propagate(expr) => {
                 let v = self.eval_expr(expr)?;
                 match v {
-                    Value::Err(e) => Err(InterpError { kind: ErrorKind::Propagated, msg: e.to_string() }),
-                    Value::Ok(v)  => Ok(*v),
-                    other         => Ok(other),
+                    Value::Err(e)  => Err(InterpError { kind: ErrorKind::Propagated, msg: e.to_string() }),
+                    Value::Ok(v)   => Ok(*v),
+                    // User-defined Err-named variant
+                    Value::Variant(ref name, ref fields) if name == "Err" => {
+                        let msg = fields.first().map(|v| v.to_string()).unwrap_or_default();
+                        Err(InterpError { kind: ErrorKind::Propagated, msg })
+                    }
+                    // Option None propagation (? operator semantics)
+                    Value::Option(None)    => Err(InterpError { kind: ErrorKind::Propagated, msg: "none".into() }),
+                    Value::Option(Some(v)) => Ok(*v),
+                    other => Ok(other),
                 }
             }
 
@@ -1169,6 +1255,24 @@ impl Interpreter {
                 }
                 Ok(acc)
             }
+            (Value::List(items), "join") => {
+                let sep = match args.first() {
+                    Some(Value::Str(s)) => s.clone(),
+                    _ => return Err(InterpError::runtime("join() requires a string separator")),
+                };
+                Ok(Value::Str(items.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(&sep)))
+            }
+            (Value::List(items), "set") => {
+                if args.len() < 2 { return Err(InterpError::runtime("set() requires index and value")); }
+                let idx = match &args[0] {
+                    Value::Int(n) => *n as usize,
+                    _ => return Err(InterpError::runtime("set() index must be int")),
+                };
+                let mut new_items = items.clone();
+                if idx >= new_items.len() { return Err(InterpError::runtime(format!("set() index {idx} out of bounds"))); }
+                new_items[idx] = args[1].clone();
+                Ok(Value::List(new_items))
+            }
             // -- Map methods --
             (Value::Map(pairs), "get") => {
                 let key = args.first().ok_or_else(|| InterpError::runtime("get() requires a key"))?;
@@ -1187,6 +1291,22 @@ impl Interpreter {
                 Ok(Value::List(pairs.iter().map(|(_, v)| v.clone()).collect()))
             }
             (Value::Map(pairs), "len") => Ok(Value::Int(pairs.len() as i64)),
+            (Value::Map(pairs), "set") => {
+                if args.len() < 2 { return Err(InterpError::runtime("map.set() requires key and value")); }
+                let mut new_pairs = pairs.clone();
+                let key = args[0].clone();
+                let val = args[1].clone();
+                if let Some(pos) = new_pairs.iter().position(|(k, _)| k == &key) {
+                    new_pairs[pos] = (key, val);
+                } else {
+                    new_pairs.push((key, val));
+                }
+                Ok(Value::Map(new_pairs))
+            }
+            (Value::Map(pairs), "del") => {
+                let key = args.first().ok_or_else(|| InterpError::runtime("del() requires key"))?.clone();
+                Ok(Value::Map(pairs.iter().filter(|(k, _)| k != &key).cloned().collect()))
+            }
             // -- Fallback: look up method as a function in env --
             _ => {
                 let fn_val = self.env.get(method)
@@ -1246,6 +1366,11 @@ impl Interpreter {
                                 result = self.return_value.take().unwrap_or(Value::Unit);
                                 returned = true;
                                 break;
+                            }
+                            Err(e) if e.kind == ErrorKind::Propagated => {
+                                self.env.pop();
+                                self.env.locals = saved_locals;
+                                return Ok(Value::Err(Box::new(Value::Str(e.msg))));
                             }
                             Err(e) => { self.env.pop(); self.env.locals = saved_locals; return Err(e); }
                         }
@@ -1417,8 +1542,12 @@ impl Interpreter {
                 }
                 let expr_src = expr_src.trim().to_string();
 
+                // Empty braces {} — leave as-is for fmt() positional placeholder
+                if expr_src.is_empty() {
+                    result.push('{');
+                    result.push('}');
                 // Fast path: plain identifier — no need to lex/parse
-                if expr_src.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                } else if expr_src.chars().all(|c| c.is_alphanumeric() || c == '_') {
                     let val = self.env.get(&expr_src)
                         .ok_or_else(|| InterpError::runtime(
                             format!("undefined variable '{expr_src}' in string interpolation")

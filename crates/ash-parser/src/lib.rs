@@ -104,6 +104,17 @@ impl Parser {
             Token::Let    => self.parse_let()?,
             Token::Mut    => self.parse_let()?,
             _ => {
+                // Check for annotated bare assignment: ident: Type = expr
+                if let Token::Ident(_) = self.peek().clone() {
+                    if self.peek2() == &Token::Colon {
+                        let name = self.expect_ident()?;
+                        self.expect(&Token::Colon)?;
+                        let ty = self.parse_type()?;
+                        self.expect(&Token::Assign)?;
+                        let value = self.parse_expr()?;
+                        return Ok(Stmt { kind: StmtKind::Let { name, ty, mutable: false, value }, span });
+                    }
+                }
                 let expr = self.parse_expr()?;
                 if self.peek() == &Token::Assign {
                     self.advance();
@@ -349,6 +360,13 @@ impl Parser {
             let rhs = self.parse_and()?;
             lhs = Expr { kind: ExprKind::BinOp { op: BinOp::Or, lhs: Box::new(lhs), rhs: Box::new(rhs) }, span };
         }
+        // Range: start..end — lower precedence than arithmetic
+        if self.peek() == &Token::DotDot {
+            let span = self.peek_span();
+            self.advance();
+            let rhs = self.parse_and()?;
+            lhs = Expr { kind: ExprKind::Range { start: Box::new(lhs), end: Box::new(rhs) }, span };
+        }
         self.parse_pipeline_or_null(lhs)
     }
 
@@ -460,7 +478,7 @@ impl Parser {
             match self.peek().clone() {
                 Token::Dot => {
                     self.advance();
-                    let field = self.expect_ident()?;
+                    let field = self.expect_ident_or_keyword()?;
                     if self.peek() == &Token::LParen {
                         let args = self.parse_arg_list()?;
                         let callee = Box::new(Expr { kind: ExprKind::Field { obj: Box::new(expr), field }, span: span.clone() });
@@ -539,6 +557,22 @@ impl Parser {
                 self.expect(&Token::RBracket)?;
                 Ok(Expr { kind: ExprKind::List(elems), span })
             }
+            Token::LBrace => {
+                self.advance();
+                let mut pairs = vec![];
+                while self.peek() != &Token::RBrace && !self.at_eof() {
+                    self.skip_newlines();
+                    if self.peek() == &Token::RBrace { break; }
+                    let key = self.parse_expr()?;
+                    self.expect(&Token::Colon)?;
+                    let val = self.parse_expr()?;
+                    pairs.push((key, val));
+                    self.eat(&Token::Comma);
+                    self.skip_newlines();
+                }
+                self.expect(&Token::RBrace)?;
+                Ok(Expr { kind: ExprKind::Map(pairs), span })
+            }
             Token::If    => self.parse_if_expr(),
             Token::Match => self.parse_match_expr(),
             _ => Err(self.err(format!("unexpected token '{}' in expression", self.peek()))),
@@ -595,7 +629,34 @@ impl Parser {
                     while self.peek() != &Token::RParen && !self.at_eof() { inner.push(self.parse_pattern()?); self.eat(&Token::Comma); }
                     self.expect(&Token::RParen)?;
                     Ok(Pattern::Variant(name, inner))
+                } else if self.peek() == &Token::LBrace {
+                    // Struct pattern: Point { x, y } or Point { x: 0, y: 0 }
+                    self.advance();
+                    let mut fields = vec![];
+                    while self.peek() != &Token::RBrace && !self.at_eof() {
+                        let field_name = self.expect_ident()?;
+                        let pat = if self.eat(&Token::Colon) {
+                            self.parse_pattern()?
+                        } else {
+                            Pattern::Ident(field_name.clone())
+                        };
+                        fields.push((field_name, pat));
+                        self.eat(&Token::Comma);
+                    }
+                    self.expect(&Token::RBrace)?;
+                    Ok(Pattern::Struct(name, fields))
                 } else { Ok(Pattern::Ident(name)) }
+            }
+            Token::LParen => {
+                // Tuple pattern: (a, b)
+                self.advance();
+                let mut pats = vec![];
+                while self.peek() != &Token::RParen && !self.at_eof() {
+                    pats.push(self.parse_pattern()?);
+                    self.eat(&Token::Comma);
+                }
+                self.expect(&Token::RParen)?;
+                Ok(Pattern::Tuple(pats))
             }
             Token::Int(n)   => { self.advance(); Ok(Pattern::Literal(LitPattern::Int(n))) }
             Token::Float(n) => { self.advance(); Ok(Pattern::Literal(LitPattern::Float(n))) }
@@ -625,6 +686,23 @@ impl Parser {
     fn expect_ident(&mut self) -> PResult<String> {
         match self.peek().clone() {
             Token::Ident(s) => { self.advance(); Ok(s) }
+            _ => Err(self.err(format!("expected identifier, got '{}'", self.peek()))),
+        }
+    }
+
+    /// Like expect_ident but also accepts reserved keywords as method names after `.`
+    /// e.g. re.match, map.type, list.in
+    fn expect_ident_or_keyword(&mut self) -> PResult<String> {
+        match self.peek().clone() {
+            Token::Ident(s) => { self.advance(); Ok(s) }
+            Token::Match    => { self.advance(); Ok("match".into()) }
+            Token::For      => { self.advance(); Ok("for".into()) }
+            Token::In       => { self.advance(); Ok("in".into()) }
+            Token::Type     => { self.advance(); Ok("type".into()) }
+            Token::Let      => { self.advance(); Ok("let".into()) }
+            Token::Mut      => { self.advance(); Ok("mut".into()) }
+            Token::If       => { self.advance(); Ok("if".into()) }
+            Token::Else     => { self.advance(); Ok("else".into()) }
             _ => Err(self.err(format!("expected identifier, got '{}'", self.peek()))),
         }
     }
