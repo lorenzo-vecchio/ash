@@ -430,7 +430,7 @@ impl Lexer {
             if c.is_ascii_digit() {
                 s.push(c);
                 self.advance();
-            } else if c == '.' && self.peek_at(1).map_or(false, |x| x.is_ascii_digit()) {
+            } else if c == '.' && self.peek_at(1).is_some_and(|x| x.is_ascii_digit()) {
                 is_float = true;
                 s.push(c);
                 self.advance();

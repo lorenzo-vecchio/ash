@@ -404,7 +404,7 @@ impl Parser {
                     self.expect(&Token::RBracket)?;
                     return Ok(AshType::Named(name));
                 }
-                if name.len() == 1 && name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                if name.len() == 1 && name.chars().next().is_some_and(|c| c.is_uppercase()) {
                     return Ok(AshType::Generic(name));
                 }
                 Ok(match name.as_str() {

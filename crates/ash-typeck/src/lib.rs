@@ -62,6 +62,7 @@ pub enum InferTy {
 }
 
 impl InferTy {
+    #[allow(dead_code)]
     fn is_var(&self) -> bool {
         matches!(self, InferTy::Var(_))
     }
@@ -122,6 +123,7 @@ impl Subst {
 
 // --- Unifier -----------------------------------------------------------------
 
+#[allow(dead_code)]
 fn unify(a: &InferTy, b: &InferTy, subst: &mut Subst) -> TResult<()> {
     let a = subst.apply(a);
     let b = subst.apply(b);
@@ -165,9 +167,11 @@ fn types_compatible(a: &HirType, b: &HirType) -> bool {
 // --- Type checker / lowering pass --------------------------------------------
 
 pub struct TypeChecker {
-    // Counter for fresh type variables
+    // Counter for fresh type variables (reserved for future constraint solving)
+    #[allow(dead_code)]
     next_var: usize,
-    // Substitution built during constraint solving
+    // Substitution built during constraint solving (reserved for future use)
+    #[allow(dead_code)]
     subst: Subst,
     // Type environment: name → type
     env: TypeEnv,
@@ -179,6 +183,12 @@ pub struct TypeChecker {
     lambda_counter: usize,
     // Lifted lambdas collected during traversal
     lifted: Vec<HirFn>,
+}
+
+impl Default for TypeChecker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TypeChecker {
@@ -196,12 +206,14 @@ impl TypeChecker {
         tc
     }
 
+    #[allow(dead_code)]
     fn fresh(&mut self) -> TyVar {
         let v = TyVar(self.next_var);
         self.next_var += 1;
         v
     }
 
+    #[allow(clippy::cloned_ref_to_slice_refs)]
     fn register_builtins(&mut self) {
         // Core functions
         let builtins: &[(&str, &[HirType], HirType)] = &[
@@ -873,7 +885,7 @@ impl TypeChecker {
                     }
                     _ => {
                         let hfn = self.lower_expr(rhs)?;
-                        let ret_ty = self.call_return_type(&hfn.ty, &[hlhs.clone()]);
+                        let ret_ty = self.call_return_type(&hfn.ty, std::slice::from_ref(&hlhs));
                         Ok(HirExpr::new(
                             HirExprKind::Call {
                                 callee: Box::new(hfn),
@@ -1247,7 +1259,7 @@ impl TypeChecker {
         // Method call: obj.method(args)
         if let ExprKind::Field { obj, field } = &callee.kind {
             let hobj = self.lower_expr(obj)?;
-            let mut hargs: Vec<HirExpr> = args
+            let hargs: Vec<HirExpr> = args
                 .iter()
                 .map(|a| self.lower_expr(a))
                 .collect::<TResult<_>>()?;
@@ -1433,7 +1445,7 @@ impl TypeChecker {
             }
         }
         // Search all unions
-        for (_, variants) in &self.registry.unions {
+        for variants in self.registry.unions.values() {
             for v in variants {
                 if v.name == variant_name {
                     return v.fields.clone();
@@ -1482,6 +1494,7 @@ pub fn check(program: &Program) -> TResult<HirProgram> {
 
 // --- Helpers -----------------------------------------------------------------
 
+#[allow(dead_code)]
 trait HirTypeNamed {
     fn named(n: &str) -> HirType;
 }
@@ -1612,7 +1625,7 @@ mod tests {
     fn test_if_expr_bool_cond() {
         let hir = typecheck("if true\n    1\nelse\n    0");
         // Should not fail — condition is bool
-        assert!(hir.top_stmts.len() > 0);
+        assert!(!hir.top_stmts.is_empty());
     }
 
     #[test]

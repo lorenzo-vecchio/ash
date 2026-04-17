@@ -18,16 +18,16 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 // ─── Semantic token types & modifiers ────────────────────────────────────────
 
 const TOKEN_TYPES: &[SemanticTokenType] = &[
-    SemanticTokenType::KEYWORD,    // 0
-    SemanticTokenType::STRING,     // 1
-    SemanticTokenType::NUMBER,     // 2
-    SemanticTokenType::OPERATOR,   // 3
-    SemanticTokenType::VARIABLE,   // 4
-    SemanticTokenType::FUNCTION,   // 5
-    SemanticTokenType::TYPE,       // 6
-    SemanticTokenType::COMMENT,    // 7
-    SemanticTokenType::PARAMETER,  // 8
-    SemanticTokenType::NAMESPACE,  // 9
+    SemanticTokenType::KEYWORD,   // 0
+    SemanticTokenType::STRING,    // 1
+    SemanticTokenType::NUMBER,    // 2
+    SemanticTokenType::OPERATOR,  // 3
+    SemanticTokenType::VARIABLE,  // 4
+    SemanticTokenType::FUNCTION,  // 5
+    SemanticTokenType::TYPE,      // 6
+    SemanticTokenType::COMMENT,   // 7
+    SemanticTokenType::PARAMETER, // 8
+    SemanticTokenType::NAMESPACE, // 9
 ];
 
 fn token_type_index(tt: SemanticTokenType) -> u32 {
@@ -72,8 +72,8 @@ impl AshBackend {
         // Build the set of known stdlib namespaces so we can colour them
         // distinctly from regular variables.
         let stdlib_ns: std::collections::HashSet<&str> = [
-            "math", "file", "http", "json", "re", "env", "go", "db",
-            "cache", "queue", "auth", "mail", "store", "ai",
+            "math", "file", "http", "json", "re", "env", "go", "db", "cache", "queue", "auth",
+            "mail", "store", "ai",
         ]
         .iter()
         .copied()
@@ -95,9 +95,7 @@ impl AshBackend {
                     // optional `(` — collect params until `)`
                     if i < meaningful.len() && matches!(meaningful[i].node, Token::LParen) {
                         i += 1;
-                        while i < meaningful.len()
-                            && !matches!(meaningful[i].node, Token::RParen)
-                        {
+                        while i < meaningful.len() && !matches!(meaningful[i].node, Token::RParen) {
                             if matches!(meaningful[i].node, Token::Ident(_)) {
                                 param_indices.insert(i);
                             }
@@ -105,15 +103,16 @@ impl AshBackend {
                         }
                     } else {
                         // space-separated params until newline or body colon
-                        while i < meaningful.len()
-                            && matches!(meaningful[i].node, Token::Ident(_))
+                        while i < meaningful.len() && matches!(meaningful[i].node, Token::Ident(_))
                         {
                             param_indices.insert(i);
                             i += 1;
                             // skip optional `: Type` annotation
                             if i < meaningful.len() && matches!(meaningful[i].node, Token::Colon) {
                                 i += 1; // colon
-                                if i < meaningful.len() { i += 1; } // type
+                                if i < meaningful.len() {
+                                    i += 1;
+                                } // type
                             }
                         }
                     }
@@ -230,7 +229,7 @@ fn classify_token_ctx(
     tok: &Token,
     prev: Option<&Token>,
     next: Option<&Token>,
-    next2: Option<&Token>,
+    _next2: Option<&Token>,
     is_param: bool,
     stdlib_ns: &std::collections::HashSet<&str>,
 ) -> Option<SemanticTokenType> {
@@ -303,7 +302,9 @@ fn classify_token_ctx(
             }
 
             // stdlib namespace (e.g. `math`, `db`) followed by `.` → NAMESPACE
-            if stdlib_ns.contains(s.as_str()) && matches!(next, Some(Token::Dot) | Some(Token::SafeDot)) {
+            if stdlib_ns.contains(s.as_str())
+                && matches!(next, Some(Token::Dot) | Some(Token::SafeDot))
+            {
                 return Some(SemanticTokenType::NAMESPACE);
             }
 

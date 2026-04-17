@@ -324,7 +324,7 @@ impl Codegen {
             } => {
                 let (reg, vty) = self.emit_expr(value)?;
                 // Use storage type for alloca (i1 for bool), ABI type for the def
-                let abi_ty = if *ty == HirType::Unknown {
+                let _abi_ty = if *ty == HirType::Unknown {
                     vty.clone()
                 } else {
                     hir_to_llvm(ty)
@@ -503,9 +503,8 @@ impl Codegen {
                 if let HirExprKind::Field { obj, field } = &callee.kind {
                     // Try namespace call: math.sqrt etc
                     if let HirExprKind::Var(ns) = &obj.kind {
-                        match ns.as_str() {
-                            "math" => return self.emit_math_call(field, args),
-                            _ => {}
+                        if ns.as_str() == "math" {
+                            return self.emit_math_call(field, args);
                         }
                     }
                     // Method call on value
@@ -1075,7 +1074,7 @@ impl Codegen {
         obj_reg: &str,
         obj_ty: &LLVMType,
         method: &str,
-        args: &[HirExpr],
+        _args: &[HirExpr],
     ) -> CResult<(String, LLVMType)> {
         match (obj_ty, method) {
             (LLVMType::Ptr, "len") => {
@@ -1092,7 +1091,7 @@ impl Codegen {
     // ── math namespace ────────────────────────────────────────────────────────
 
     fn emit_math_call(&mut self, func: &str, args: &[HirExpr]) -> CResult<(String, LLVMType)> {
-        let (r, t) = if args.is_empty() {
+        let (r, _t) = if args.is_empty() {
             ("0.0".to_string(), LLVMType::Double)
         } else {
             let (r, t) = self.emit_expr(&args[0])?;
@@ -1168,6 +1167,7 @@ mod tests {
         let program = parse(tokens).expect("parse");
         compile(&program).expect("codegen")
     }
+    #[allow(dead_code)]
     fn codegen_fails(src: &str) -> bool {
         let tokens = Lexer::new(src).tokenize().expect("lex");
         let program = parse(tokens).expect("parse");

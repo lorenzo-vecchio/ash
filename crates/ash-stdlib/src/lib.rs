@@ -872,6 +872,12 @@ pub struct RuntimeContext {
     pub env_vars: std::collections::HashMap<String, String>,
 }
 
+impl Default for RuntimeContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RuntimeContext {
     pub fn new() -> Self {
         RuntimeContext {

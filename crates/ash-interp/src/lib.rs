@@ -43,9 +43,11 @@ pub struct FnValue {
     pub closure: Env,
 }
 
+type NativeFn = std::sync::Arc<dyn Fn(&[Value]) -> InterpResult<Value> + Send + Sync>;
+
 pub enum FnBody {
     Ast(Vec<Stmt>),
-    Native(std::sync::Arc<dyn Fn(&[Value]) -> InterpResult<Value> + Send + Sync>),
+    Native(NativeFn),
 }
 
 impl std::fmt::Debug for FnBody {
@@ -537,6 +539,7 @@ impl Env {
         );
 
         // -- math.* ----------------------------------------------------------
+        #[allow(unused_macros)]
         macro_rules! math_fn1 {
             ($name:expr, $op:expr) => {
                 self.define(
@@ -1814,6 +1817,7 @@ impl InterpError {
             msg: msg.into(),
         }
     }
+    #[allow(dead_code)]
     fn return_val(msg: impl Into<String>) -> Self {
         InterpError {
             kind: ErrorKind::Return,
@@ -1841,6 +1845,12 @@ pub struct Interpreter {
     env: Env,
     // Return value channel — used to unwind from return statements
     return_value: Option<Value>,
+}
+
+impl Default for Interpreter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Interpreter {

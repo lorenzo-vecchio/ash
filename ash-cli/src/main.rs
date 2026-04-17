@@ -445,8 +445,8 @@ fn cmd_repl() {
         }
 
         // Handle line continuation
-        if trimmed.ends_with('\\') {
-            buffer.push_str(&trimmed[..trimmed.len() - 1]);
+        if let Some(stripped) = trimmed.strip_suffix('\\') {
+            buffer.push_str(stripped);
             buffer.push('\n');
             continuation = true;
             continue;
