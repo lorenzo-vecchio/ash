@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(grep -v \"^warning: \\\\`\")",
+      "Bash(chmod +x /Users/lorenzovecchio/Desktop/REPOSITORY/ash/install.sh)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
