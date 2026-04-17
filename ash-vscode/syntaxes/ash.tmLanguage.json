@@ -1,0 +1,79 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Ash",
+  "scopeName": "source.ash",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#numbers" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "name": "comment.line.hash.ash",
+      "match": "#.*$"
+    },
+    "strings": {
+      "name": "string.quoted.double.ash",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ash",
+          "match": "\\\\."
+        },
+        {
+          "name": "variable.other.ash",
+          "match": "\\{[^}]*\\}"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.ash",
+          "match": "\\b(if|else|while|for|in|match|return|panic|use)\\b"
+        },
+        {
+          "name": "keyword.declaration.ash",
+          "match": "\\b(fn|type|let|mut)\\b"
+        },
+        {
+          "name": "keyword.other.ash",
+          "match": "\\b(move|await)\\b"
+        },
+        {
+          "name": "constant.language.ash",
+          "match": "\\b(true|false|none|None)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.ash",
+          "match": "\\b[0-9]+\\.[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.ash",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "types": {
+      "name": "entity.name.type.ash",
+      "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+    },
+    "functions": {
+      "name": "entity.name.function.ash",
+      "match": "(?<=fn )([a-z_][a-zA-Z0-9_]*)"
+    },
+    "operators": {
+      "name": "keyword.operator.ash",
+      "match": "(\\+|-|\\*|/|%|==|!=|<=|>=|<|>|&&|\\|\\||!|=>|->|\\|>|\\?\\?|\\.\\.|=)"
+    }
+  }
+}

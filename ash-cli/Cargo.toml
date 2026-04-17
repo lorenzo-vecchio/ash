@@ -15,3 +15,5 @@ ash-typeck  = { path = "../crates/ash-typeck" }
 ash-interp  = { path = "../crates/ash-interp" }
 ash-codegen = { path = "../crates/ash-codegen" }
 ash-stdlib  = { path = "../crates/ash-stdlib" }
+ash-lsp     = { path = "../crates/ash-lsp" }
+tokio       = { version = "1", features = ["full"] }

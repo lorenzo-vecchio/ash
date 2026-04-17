@@ -7,6 +7,7 @@
 //!   ash fmt   <file.ash>            Format source file
 //!   ash docs  [namespace]           Show stdlib documentation
 //!   ash test  <file.ash>            Run all test_* functions
+//!   ash lsp                         Start the LSP server (stdio)
 //!   ash repl                        Start interactive REPL
 //!   ash version                     Print version info
 
@@ -30,6 +31,7 @@ fn main() {
         "fmt" => cmd_fmt(&args[2..]),
         "docs" => cmd_docs(&args[2..]),
         "test" => cmd_test(&args[2..]),
+        "lsp" => cmd_lsp(),
         "repl" => cmd_repl(),
         "version" | "--version" | "-V" => cmd_version(),
         "help" | "--help" | "-h" => print_usage(),
@@ -51,6 +53,7 @@ fn print_usage() {
     println!("  ash fmt   <file.ash>             Format source file");
     println!("  ash docs  [namespace]            Show stdlib docs");
     println!("  ash test  <file.ash>             Run test_* functions");
+    println!("  ash lsp                          Start LSP server (stdio)");
     println!("  ash repl                         Interactive REPL");
     println!("  ash version                      Show version");
     println!();
@@ -378,6 +381,14 @@ fn cmd_test(args: &[String]) {
     if failed > 0 {
         process::exit(1);
     }
+}
+
+// ─── lsp ──────────────────────────────────────────────────────────────────────
+
+fn cmd_lsp() {
+    tokio::runtime::Runtime::new()
+        .expect("failed to create tokio runtime")
+        .block_on(ash_lsp::run_server());
 }
 
 // ─── repl ─────────────────────────────────────────────────────────────────────
