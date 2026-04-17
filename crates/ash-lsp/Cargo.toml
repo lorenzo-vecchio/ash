@@ -1,0 +1,12 @@
+[package]
+name = "ash-lsp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ash-lexer  = { path = "../ash-lexer" }
+ash-parser = { path = "../ash-parser" }
+ash-stdlib = { path = "../ash-stdlib" }
+tower-lsp  = "0.20"
+tokio      = { version = "1", features = ["full"] }
+serde_json = "1"
