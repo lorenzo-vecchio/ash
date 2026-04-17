@@ -1446,6 +1446,317 @@ impl Env {
             }),
         );
 
+        // -- cache.* (in-memory key-value store with optional TTL) -----------
+        {
+            use std::collections::HashMap;
+            use std::time::{Duration, Instant};
+            type CacheStore =
+                std::sync::Arc<std::sync::Mutex<HashMap<String, (Value, Option<Instant>)>>>;
+            let store: CacheStore = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+
+            // cache.set(key, val)  and  cache.set(key, val, ttl_ms)
+            let s = store.clone();
+            self.define(
+                "cache.set",
+                Value::Fn(FnValue {
+                    name: Some("cache.set".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |args| {
+                        if args.len() < 2 {
+                            return Err(InterpError::runtime("cache.set requires key and value"));
+                        }
+                        let key = args[0].to_string();
+                        let val = args[1].clone();
+                        let expires = if let Some(Value::Int(ms)) = args.get(2) {
+                            Some(Instant::now() + Duration::from_millis(*ms as u64))
+                        } else {
+                            None
+                        };
+                        s.lock().unwrap().insert(key, (val, expires));
+                        Ok(Value::Unit)
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+
+            let s = store.clone();
+            self.define(
+                "cache.get",
+                Value::Fn(FnValue {
+                    name: Some("cache.get".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |args| {
+                        let key = args
+                            .first()
+                            .ok_or_else(|| InterpError::runtime("cache.get requires key"))?
+                            .to_string();
+                        let mut map = s.lock().unwrap();
+                        match map.get(&key) {
+                            Some((_, Some(exp))) if *exp <= Instant::now() => {
+                                map.remove(&key);
+                                Ok(Value::Option(None))
+                            }
+                            Some((v, _)) => Ok(Value::Option(Some(Box::new(v.clone())))),
+                            None => Ok(Value::Option(None)),
+                        }
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+
+            let s = store.clone();
+            self.define(
+                "cache.has",
+                Value::Fn(FnValue {
+                    name: Some("cache.has".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |args| {
+                        let key = args
+                            .first()
+                            .ok_or_else(|| InterpError::runtime("cache.has requires key"))?
+                            .to_string();
+                        let mut map = s.lock().unwrap();
+                        if let Some((_, Some(exp))) = map.get(&key) {
+                            if *exp <= Instant::now() {
+                                map.remove(&key);
+                                return Ok(Value::Bool(false));
+                            }
+                        }
+                        Ok(Value::Bool(map.contains_key(&key)))
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+
+            let s = store.clone();
+            self.define(
+                "cache.del",
+                Value::Fn(FnValue {
+                    name: Some("cache.del".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |args| {
+                        let key = args
+                            .first()
+                            .ok_or_else(|| InterpError::runtime("cache.del requires key"))?
+                            .to_string();
+                        s.lock().unwrap().remove(&key);
+                        Ok(Value::Unit)
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+
+            let s = store.clone();
+            self.define(
+                "cache.clear",
+                Value::Fn(FnValue {
+                    name: Some("cache.clear".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |_| {
+                        s.lock().unwrap().clear();
+                        Ok(Value::Unit)
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+        }
+
+        // -- queue.* (named in-memory FIFO queues) ---------------------------
+        {
+            use std::collections::{HashMap, VecDeque};
+            type QueueStore = std::sync::Arc<std::sync::Mutex<HashMap<String, VecDeque<Value>>>>;
+            let queues: QueueStore = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+
+            let q = queues.clone();
+            self.define(
+                "queue.push",
+                Value::Fn(FnValue {
+                    name: Some("queue.push".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |args| {
+                        if args.len() < 2 {
+                            return Err(InterpError::runtime("queue.push requires name and value"));
+                        }
+                        let name = args[0].to_string();
+                        let val = args[1].clone();
+                        q.lock().unwrap().entry(name).or_default().push_back(val);
+                        Ok(Value::Unit)
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+
+            let q = queues.clone();
+            self.define(
+                "queue.pop",
+                Value::Fn(FnValue {
+                    name: Some("queue.pop".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |args| {
+                        let name = args
+                            .first()
+                            .ok_or_else(|| InterpError::runtime("queue.pop requires name"))?
+                            .to_string();
+                        let val = q.lock().unwrap().entry(name).or_default().pop_front();
+                        Ok(val
+                            .map(|v| Value::Option(Some(Box::new(v))))
+                            .unwrap_or(Value::Option(None)))
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+
+            let q = queues.clone();
+            self.define(
+                "queue.len",
+                Value::Fn(FnValue {
+                    name: Some("queue.len".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |args| {
+                        let name = args
+                            .first()
+                            .ok_or_else(|| InterpError::runtime("queue.len requires name"))?
+                            .to_string();
+                        let len = q.lock().unwrap().get(&name).map(|dq| dq.len()).unwrap_or(0);
+                        Ok(Value::Int(len as i64))
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+
+            let q = queues.clone();
+            self.define(
+                "queue.clear",
+                Value::Fn(FnValue {
+                    name: Some("queue.clear".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |args| {
+                        let name = args
+                            .first()
+                            .ok_or_else(|| InterpError::runtime("queue.clear requires name"))?
+                            .to_string();
+                        q.lock().unwrap().remove(&name);
+                        Ok(Value::Unit)
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+        }
+
+        // -- auth.* stubs (require external service or crates) ---------------
+        for name in &["auth.hash", "auth.check", "auth.jwt", "auth.verify"] {
+            let n = name.to_string();
+            self.define(
+                name,
+                Value::Fn(FnValue {
+                    name: Some(n.clone()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |_| {
+                        Err(InterpError::runtime(format!(
+                            "{n}: not yet implemented — add 'bcrypt'/'jsonwebtoken' crate to ash-interp"
+                        )))
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+        }
+
+        // -- mail.* stubs ----------------------------------------------------
+        for name in &["mail.send", "mail.smtp"] {
+            let n = name.to_string();
+            self.define(
+                name,
+                Value::Fn(FnValue {
+                    name: Some(n.clone()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |_| {
+                        Err(InterpError::runtime(format!(
+                            "{n}: not yet implemented — set SMTP_HOST/SMTP_USER/SMTP_PASS and add 'lettre' crate"
+                        )))
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+        }
+
+        // -- store.* stubs ---------------------------------------------------
+        for name in &["store.get", "store.set", "store.del", "store.list"] {
+            let n = name.to_string();
+            self.define(
+                name,
+                Value::Fn(FnValue {
+                    name: Some(n.clone()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(move |_| {
+                        Err(InterpError::runtime(format!(
+                            "{n}: not yet implemented — set STORE_URL env var"
+                        )))
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+        }
+
+        // -- ai.* (calls Anthropic API via http.post) ------------------------
+        {
+            let ask_names: &[&str] = &["ai.ask", "ai.complete", "ai.chat"];
+            for name in ask_names {
+                let n = name.to_string();
+                self.define(
+                    name,
+                    Value::Fn(FnValue {
+                        name: Some(n.clone()),
+                        params: vec![],
+                        body: FnBody::Native(std::sync::Arc::new(move |args| {
+                            let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+                                InterpError::runtime(
+                                    "ai.*: ANTHROPIC_API_KEY environment variable not set",
+                                )
+                            })?;
+                            let prompt = args
+                                .first()
+                                .ok_or_else(|| {
+                                    InterpError::runtime(format!("{n}: requires a prompt string"))
+                                })?
+                                .to_string();
+                            let model = args
+                                .get(1)
+                                .map(|v| v.to_string())
+                                .unwrap_or_else(|| "claude-haiku-4-5-20251001".to_string());
+
+                            let body = serde_json::json!({
+                                "model": model,
+                                "max_tokens": 1024,
+                                "messages": [{"role": "user", "content": prompt}]
+                            })
+                            .to_string();
+
+                            let resp = ureq::post("https://api.anthropic.com/v1/messages")
+                                .set("x-api-key", &api_key)
+                                .set("anthropic-version", "2023-06-01")
+                                .set("content-type", "application/json")
+                                .send_string(&body)
+                                .map_err(|e| InterpError::runtime(e.to_string()))?;
+
+                            let text = resp
+                                .into_string()
+                                .map_err(|e| InterpError::runtime(e.to_string()))?;
+
+                            // Extract content[0].text from the response
+                            let json: serde_json::Value = serde_json::from_str(&text)
+                                .map_err(|e| InterpError::runtime(e.to_string()))?;
+                            let content = json["content"][0]["text"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string();
+                            Ok(Value::Str(content))
+                        })),
+                        closure: Env::default(),
+                    }),
+                );
+            }
+        }
+
         // -- assert (core builtin for ash test) ------------------------------
         self.define(
             "assert",
