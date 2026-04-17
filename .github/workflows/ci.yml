@@ -62,7 +62,7 @@ jobs:
             asset_name: ash-macos-arm64
 
           - name: macos-x86_64
-            os: macos-13
+            os: macos-latest
             target: x86_64-apple-darwin
             asset_name: ash-macos-x86_64
 
