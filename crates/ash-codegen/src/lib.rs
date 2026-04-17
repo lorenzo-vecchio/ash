@@ -216,8 +216,9 @@ impl Codegen {
     // ── function ──────────────────────────────────────────────────────────────
 
     fn emit_fn(&mut self, f: &HirFn) -> CResult<()> {
-        let ret_ty = hir_to_llvm(&f.ret);
-        self.cur_ret = ret_ty.clone();
+        let declared_ret = hir_to_llvm(&f.ret);
+        // Use Unknown as a sentinel — will be resolved after emitting the body
+        self.cur_ret = declared_ret.clone();
 
         let params: Vec<String> = f
             .params
@@ -225,12 +226,10 @@ impl Codegen {
             .map(|p| format!("{} %p_{}", hir_to_llvm(&p.ty), p.name))
             .collect();
 
-        self.emit(format!(
-            "define {} @{}({}) {{",
-            ret_ty,
-            f.name,
-            params.join(", ")
-        ));
+        // Reserve a slot for the define line — we'll patch it once we know the
+        // actual return type (needed when f.ret == Unknown / string functions).
+        let define_idx = self.output.len();
+        self.output.push(String::new()); // placeholder
         self.emit("entry:");
         self.cur_block = "entry".into();
         self.push_scope();
@@ -248,17 +247,40 @@ impl Codegen {
             last = self.emit_stmt(stmt)?;
         }
 
+        // Resolve the actual return type: when declared Unknown, use the type
+        // of the last expression (e.g. Ptr for string-returning functions).
+        let resolved_ret = if declared_ret == LLVMType::I64 && f.ret == HirType::Unknown {
+            last.as_ref()
+                .map(|(_, t)| t.clone())
+                .unwrap_or(declared_ret.clone())
+        } else {
+            declared_ret.clone()
+        };
+
+        // Patch the define line now that we know the resolved return type
+        self.output[define_idx] = format!(
+            "define {} @{}({}) {{",
+            resolved_ret,
+            f.name,
+            params.join(", ")
+        );
+
+        // Update fn_sig with resolved return type (for callers that use println etc.)
+        if let Some(sig) = self.fn_sigs.get_mut(&f.name) {
+            sig.1 = resolved_ret.clone();
+        }
+
         // Emit return
-        if ret_ty == LLVMType::Void {
+        if resolved_ret == LLVMType::Void {
             self.i("ret void");
         } else if let Some((reg, ty)) = last {
-            let coerced = self.coerce(&reg, &ty, &ret_ty);
-            self.i(format!("ret {ret_ty} {coerced}"));
+            let coerced = self.coerce(&reg, &ty, &resolved_ret);
+            self.i(format!("ret {resolved_ret} {coerced}"));
         } else {
-            match &ret_ty {
-                LLVMType::I64 | LLVMType::I1 => self.i(format!("ret {ret_ty} 0")),
+            match &resolved_ret {
+                LLVMType::I64 | LLVMType::I1 => self.i(format!("ret {resolved_ret} 0")),
                 LLVMType::Double => self.i("ret double 0.0"),
-                _ => self.i(format!("ret {ret_ty} null")),
+                _ => self.i(format!("ret {resolved_ret} null")),
             }
         }
 
@@ -962,7 +984,22 @@ impl Codegen {
     }
 
     fn infer_arg_llvm_ty(&self, arg: Option<&HirExpr>) -> LLVMType {
-        arg.map(|e| hir_to_llvm(&e.ty)).unwrap_or(LLVMType::I64)
+        let expr = match arg {
+            Some(e) => e,
+            None => return LLVMType::I64,
+        };
+        // For function calls whose HIR type is Unknown, look up the resolved
+        // return type from fn_sigs (which gets patched during emit_fn).
+        if expr.ty == HirType::Unknown {
+            if let HirExprKind::Call { callee, .. } = &expr.kind {
+                if let HirExprKind::Var(name) = &callee.kind {
+                    if let Some((_, ret)) = self.fn_sigs.get(name) {
+                        return ret.clone();
+                    }
+                }
+            }
+        }
+        hir_to_llvm(&expr.ty)
     }
 
     // ── method call ───────────────────────────────────────────────────────────
