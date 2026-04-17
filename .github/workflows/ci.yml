@@ -101,10 +101,37 @@ jobs:
           path: ${{ matrix.asset_name }}
           retention-days: 30
 
+  # ── Package VS Code extension ───────────────────────────────────────────────
+  vscode:
+    name: Package VS Code extension
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Package extension
+        working-directory: ash-vscode
+        run: |
+          npm install -g @vscode/vsce
+          vsce package --no-dependencies
+
+      - name: Upload vsix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ash-vscode
+          path: ash-vscode/*.vsix
+          retention-days: 30
+
   # ── Create GitHub Release on version tags ──────────────────────────────────
   release:
     name: Release
-    needs: build
+    needs: [build, vscode]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -120,16 +147,21 @@ jobs:
 
       - name: Create release archives
         run: |
-          for dir in artifacts/*/; do
+          for dir in artifacts/ash-linux-x86_64 artifacts/ash-macos-arm64 artifacts/ash-macos-x86_64; do
+            [ -d "$dir" ] || continue
             name=$(basename "$dir")
             chmod +x "$dir/$name"
             tar -czf "${name}.tar.gz" -C "$dir" "$name"
           done
+          # copy vsix as-is
+          cp artifacts/ash-vscode/*.vsix . 2>/dev/null || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: "*.tar.gz"
+          files: |
+            *.tar.gz
+            *.vsix
           generate_release_notes: true
           body: |
             ## Install
@@ -146,3 +178,10 @@ jobs:
             | Linux x86_64 | `ash-linux-x86_64.tar.gz` |
             | macOS Apple Silicon | `ash-macos-arm64.tar.gz` |
             | macOS Intel | `ash-macos-x86_64.tar.gz` |
+
+            ## VS Code extension
+
+            Download `ash-language-*.vsix` below and install it with:
+            ```sh
+            code --install-extension ash-language-*.vsix
+            ```
