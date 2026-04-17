@@ -722,7 +722,11 @@ impl TypeChecker {
             ExprKind::Int(n) => Ok(HirExpr::new(HirExprKind::Int(*n), HirType::Int)),
             ExprKind::Float(n) => Ok(HirExpr::new(HirExprKind::Float(*n), HirType::Float)),
             ExprKind::Bool(b) => Ok(HirExpr::new(HirExprKind::Bool(*b), HirType::Bool)),
-            ExprKind::Str(s) => Ok(HirExpr::new(HirExprKind::Str(s.clone()), HirType::Str)),
+            ExprKind::Str(s) => {
+                // Lower interpolated strings to StrConcat chains so codegen can handle them.
+                // Pattern: "hello {name}!" → concat("hello ", name, "!")
+                self.lower_str_interp(s, expr)
+            }
 
             ExprKind::Ident(name) => {
                 let ty = self
@@ -1056,6 +1060,125 @@ impl TypeChecker {
                 ))
             }
         }
+    }
+
+    // -- string interpolation lowering ----------------------------------------
+
+    /// Lower an interpolated string like "hello {name}!" to a chain of StrConcat ops.
+    /// If the string has no `{...}` markers it returns a plain Str node.
+    fn lower_str_interp(&mut self, s: &str, origin: &Expr) -> TResult<HirExpr> {
+        // Quick check — if no `{` in the string, emit as plain string constant
+        if !s.contains('{') {
+            return Ok(HirExpr::new(HirExprKind::Str(s.to_string()), HirType::Str));
+        }
+
+        // Split the template into alternating literal and expression segments
+        let mut segments: Vec<HirExpr> = vec![];
+        let chars: Vec<char> = s.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] == '{' {
+                // Find matching `}`
+                let start = i + 1;
+                let end = match chars[start..].iter().position(|&c| c == '}') {
+                    Some(p) => start + p,
+                    None => {
+                        // Unclosed brace — emit rest as literal
+                        let rest: String = chars[i..].iter().collect();
+                        segments.push(HirExpr::new(HirExprKind::Str(rest), HirType::Str));
+                        break;
+                    }
+                };
+                let expr_src: String = chars[start..end].iter().collect();
+                let expr_src = expr_src.trim().to_string();
+
+                if expr_src.is_empty() {
+                    // `{}` — literal placeholder, emit as-is
+                    segments.push(HirExpr::new(HirExprKind::Str("{}".into()), HirType::Str));
+                } else if expr_src.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    // Simple identifier — lower as a Var with toString coercion
+                    let ty = self
+                        .env
+                        .get(&expr_src)
+                        .cloned()
+                        .or_else(|| {
+                            self.fn_sigs
+                                .get(&expr_src)
+                                .map(|(ps, r)| HirType::Fn(ps.clone(), Box::new(r.clone())))
+                        })
+                        .unwrap_or(HirType::Unknown);
+                    let var = HirExpr::new(HirExprKind::Var(expr_src), ty.clone());
+                    // Wrap in a str cast if needed (represented as identity for now — codegen handles via value_to_str)
+                    segments.push(var);
+                } else {
+                    // Complex expression — parse and lower it
+                    let token_res = ash_lexer::Lexer::new(&expr_src).tokenize();
+                    match token_res {
+                        Ok(toks) => {
+                            match ash_parser::parse_expr_from_tokens(toks) {
+                                Ok(inner_expr) => {
+                                    match self.lower_expr(&inner_expr) {
+                                        Ok(he) => segments.push(he),
+                                        Err(_) => {
+                                            // Fall back to emitting as literal
+                                            segments.push(HirExpr::new(
+                                                HirExprKind::Str(format!("{{{expr_src}}}")),
+                                                HirType::Str,
+                                            ));
+                                        }
+                                    }
+                                }
+                                Err(_) => {
+                                    segments.push(HirExpr::new(
+                                        HirExprKind::Str(format!("{{{expr_src}}}")),
+                                        HirType::Str,
+                                    ));
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            segments.push(HirExpr::new(
+                                HirExprKind::Str(format!("{{{expr_src}}}")),
+                                HirType::Str,
+                            ));
+                        }
+                    }
+                }
+                i = end + 1;
+            } else {
+                // Collect literal segment
+                let mut lit = String::new();
+                while i < chars.len() && chars[i] != '{' {
+                    lit.push(chars[i]);
+                    i += 1;
+                }
+                if !lit.is_empty() {
+                    segments.push(HirExpr::new(HirExprKind::Str(lit), HirType::Str));
+                }
+            }
+        }
+
+        if segments.is_empty() {
+            return Ok(HirExpr::new(HirExprKind::Str(String::new()), HirType::Str));
+        }
+        if segments.len() == 1 {
+            return Ok(segments.remove(0));
+        }
+
+        // Build left-associative StrConcat chain
+        let _ = origin; // suppress unused
+        let mut acc = segments.remove(0);
+        for seg in segments {
+            acc = HirExpr::new(
+                HirExprKind::BinOp {
+                    op: HirBinOp::StrConcat,
+                    lhs: Box::new(acc),
+                    rhs: Box::new(seg),
+                },
+                HirType::Str,
+            );
+        }
+        Ok(acc)
     }
 
     // -- binary op ------------------------------------------------------------

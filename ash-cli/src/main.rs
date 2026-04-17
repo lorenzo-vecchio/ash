@@ -127,18 +127,40 @@ fn cmd_build(args: &[String]) {
     }
 }
 
+/// Locate ash_runtime.c: check next to the ash binary, then relative to CWD.
+fn find_runtime_c() -> Option<PathBuf> {
+    // Try next to the binary first
+    if let Ok(exe) = std::env::current_exe() {
+        let candidate = exe.with_file_name("ash_runtime.c");
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        // Also try the parent directory (e.g. release/ash → release/../ash_runtime.c)
+        if let Some(parent) = exe.parent() {
+            let candidate = parent.join("ash_runtime.c");
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+    // Fall back to CWD
+    let cwd = PathBuf::from("ash_runtime.c");
+    if cwd.exists() {
+        return Some(cwd);
+    }
+    None
+}
+
 fn try_compile_with_clang(ll: &Path, out: &Path) -> Result<(), String> {
+    let runtime = find_runtime_c();
     // Try clang-20 first (avoids FastISel bugs in clang-18 with certain phi patterns)
     for clang in &["clang-20", "clang-18", "clang"] {
-        let result = process::Command::new(clang)
-            .args([
-                "-O1",
-                ll.to_str().unwrap(),
-                "-o",
-                out.to_str().unwrap(),
-                "-lm",
-            ])
-            .status();
+        let mut cmd = process::Command::new(clang);
+        cmd.arg("-O1").arg(ll).arg("-o").arg(out).arg("-lm");
+        if let Some(ref rt) = runtime {
+            cmd.arg(rt);
+        }
+        let result = cmd.status();
         match result {
             Ok(status) if status.success() => return Ok(()),
             Ok(_) => continue,  // clang found but compilation failed
