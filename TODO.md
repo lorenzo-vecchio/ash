@@ -1151,39 +1151,42 @@ that finds all functions named `test_*`, runs them, and reports pass/fail counts
 
 ---
 
-## Priority order for implementation
+## Implementation status
 
-**Do these first (each is a small, self-contained fix):**
+**All items completed ✓**
 
-1. Bug 1 — `none`, `Some`, `Ok`, `Err` as globals (30 min, `register_stdlib()`)
-2. Bug 4 — `fmt()` and `{}` in interpolation (15 min, `fn interpolate()`)
-3. Minor — `list.join` (10 min, `fn call_method()`)
-4. Minor — `file.append` (10 min, `register_stdlib()`)
-5. Minor — `env.set` (10 min, `register_stdlib()`)
-6. Bug 5 — Range `0..n` parsing (1 hour, `parse_binop()`)
-7. Bug 3 — Map literal parsing (1 hour, `parse_primary()`)
-8. Bug 9 — Tuple pattern in match (30 min, `parse_pattern()`)
-9. Bug 8 — Struct pattern in match (1 hour, `parse_pattern()`)
-10. Bug 10 — `re.match` keyword conflict (30 min, `parse_postfix()`)
+1. ✓ Bug 1 — `none`, `Some`, `Ok`, `Err` registered as global names
+2. ✓ Bug 4 — `{}` in string interpolation left as literal `{}`
+3. ✓ Minor — `list.join`, `list.set` implemented
+4. ✓ Minor — `file.append` implemented
+5. ✓ Minor — `env.set` implemented
+6. ✓ Bug 5 — Range `0..n` parsing works
+7. ✓ Bug 3 — Map literal `{"k": v}` parsing works
+8. ✓ Bug 9 — Tuple pattern in match works
+9. ✓ Bug 8 — Struct pattern in match works
+10. ✓ Bug 10 — `re.match` keyword conflict resolved
+11. ✓ Bug 2 — `!` error propagation fixed end-to-end
+12. ✓ `json.*` — parse, str, pretty (serde_json)
+13. ✓ `re.*` — match, find, findall, replace, split (regex crate)
+14. ✓ Bug 7 — Type annotation on bare assignment (`x: int = 5`)
+15. ✓ Bug 6 — Multi-line pipeline chains
+16. ✓ `http.*` — get/post/put/del/patch (ureq)
+17. ✓ Codegen: return type inference for string/bool functions
+18. ✓ Codegen: heap lists via ash_runtime.c (ash_list_*)
+19. ✓ Codegen: string interpolation lowered to StrConcat chains
+20. ✓ `go.*` — sleep, wait, all, spawn (stub)
+21. ✓ `db.*` — SQLite via rusqlite (connect/exec/query/close)
+22. ✓ Module system — `use "path.ash"` inline imports
+23. ✓ `ash test` command
+24. ✓ LSP server (`ash lsp`, semantic tokens, diagnostics, hover, go-to-def)
+25. ✓ `cache.*` (in-memory TTL), `queue.*` (named FIFO queues), `auth.*` (stubs)
+26. ✓ `ai.*` (Anthropic API), `mail.*` (stub), `store.*` (stub)
 
-**Do these next (medium effort, high value):**
-
-11. Bug 2 — `!` error propagation fixed end-to-end
-12. `json.*` — parse + str (add `serde_json` dep, implement Value↔JSON mapping)
-13. `re.*` — all five functions (add `regex` dep)
-14. Bug 7 — Type annotation on bare assignment
-15. Bug 6 — Multi-line pipeline chains
-16. `http.*` — get/post/put/del (add `ureq` dep)
-
-**Do these after (larger effort):**
-
-17. Codegen: fix return type inference for string/bool functions
-18. Codegen: heap collections (lists/maps) via C runtime helpers
-19. Codegen: string interpolation in compiled mode
-20. `go.*` — concurrency (threads + channels)
-21. `db.*` — SQLite via `rusqlite`
-22. Module system (multi-file programs)
-23. `ash test` command
-24. LSP server (`ash lsp`, semantic tokens, diagnostics, hover, go-to-def)
-25. `cache.*`, `auth.*`, `queue.*`
-26. `mail.*`, `store.*`, `ai.*`
+**Remaining / nice-to-have:**
+- `go.spawn` proper interpreter integration (currently stub — requires interpreter dispatch)
+- `auth.*` real implementation (bcrypt + jsonwebtoken crates)
+- `mail.*` real implementation (lettre crate)
+- `store.*` real implementation
+- Codegen: map/tuple literals (currently error with suggestion to use `ash run`)
+- Package manager (`ash.toml` + registry)
+- `ash check --strict` mode (run typechecker before interpreter)
