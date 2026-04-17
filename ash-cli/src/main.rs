@@ -23,14 +23,14 @@ fn main() {
     }
 
     match args[1].as_str() {
-        "run"     => cmd_run(&args[2..]),
-        "build"   => cmd_build(&args[2..]),
-        "check"   => cmd_check(&args[2..]),
-        "fmt"     => cmd_fmt(&args[2..]),
-        "docs"    => cmd_docs(&args[2..]),
-        "repl"    => cmd_repl(),
+        "run" => cmd_run(&args[2..]),
+        "build" => cmd_build(&args[2..]),
+        "check" => cmd_check(&args[2..]),
+        "fmt" => cmd_fmt(&args[2..]),
+        "docs" => cmd_docs(&args[2..]),
+        "repl" => cmd_repl(),
         "version" | "--version" | "-V" => cmd_version(),
-        "help"    | "--help"    | "-h" => print_usage(),
+        "help" | "--help" | "-h" => print_usage(),
         other => {
             eprintln!("ash: unknown command '{other}'");
             eprintln!("Run 'ash help' for usage.");
@@ -112,7 +112,11 @@ fn cmd_build(args: &[String]) {
         }
         Err(_) => {
             println!("ash: LLVM IR written to {}", ll_path.display());
-            println!("ash: compile manually with: clang {} -o {}", ll_path.display(), out_path.display());
+            println!(
+                "ash: compile manually with: clang {} -o {}",
+                ll_path.display(),
+                out_path.display()
+            );
         }
     }
 }
@@ -121,11 +125,17 @@ fn try_compile_with_clang(ll: &Path, out: &Path) -> Result<(), String> {
     // Try clang-20 first (avoids FastISel bugs in clang-18 with certain phi patterns)
     for clang in &["clang-20", "clang-18", "clang"] {
         let result = process::Command::new(clang)
-            .args(["-O1", ll.to_str().unwrap(), "-o", out.to_str().unwrap(), "-lm"])
+            .args([
+                "-O1",
+                ll.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+                "-lm",
+            ])
             .status();
         match result {
             Ok(status) if status.success() => return Ok(()),
-            Ok(_) => continue, // clang found but compilation failed
+            Ok(_) => continue,  // clang found but compilation failed
             Err(_) => continue, // clang not found
         }
     }
@@ -136,13 +146,21 @@ fn try_compile_with_llc(ll: &Path, out: &Path) -> Result<(), String> {
     let asm = ll.with_extension("s");
     let s1 = process::Command::new("llc")
         .args([ll.to_str().unwrap(), "-o", asm.to_str().unwrap()])
-        .status().map_err(|e| e.to_string())?;
-    if !s1.success() { return Err("llc failed".into()); }
+        .status()
+        .map_err(|e| e.to_string())?;
+    if !s1.success() {
+        return Err("llc failed".into());
+    }
     let s2 = process::Command::new("cc")
         .args([asm.to_str().unwrap(), "-o", out.to_str().unwrap(), "-lm"])
-        .status().map_err(|e| e.to_string())?;
+        .status()
+        .map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&asm);
-    if s2.success() { Ok(()) } else { Err("cc failed".into()) }
+    if s2.success() {
+        Ok(())
+    } else {
+        Err("cc failed".into())
+    }
 }
 
 // ─── check ───────────────────────────────────────────────────────────────────
@@ -225,7 +243,7 @@ fn format_source(src: &str) -> String {
 
         // Normalize indentation: tabs → 4 spaces
         let indent_spaces = line.len() - line.trim_start().len();
-        let indent_tabs   = line.chars().take_while(|c| *c == '\t').count();
+        let indent_tabs = line.chars().take_while(|c| *c == '\t').count();
         let effective_indent = indent_tabs * 4 + (indent_spaces - indent_tabs);
         let normalized = format!("{}{}", " ".repeat(effective_indent), trimmed.trim_start());
 
@@ -276,7 +294,9 @@ fn cmd_docs(args: &[String]) {
                 println!("\n--- {current_ns}.* ---");
             }
         }
-        let params: Vec<String> = f.params.iter()
+        let params: Vec<String> = f
+            .params
+            .iter()
             .map(|(name, ty)| format!("{name}:{ty}"))
             .collect();
         println!(
@@ -299,7 +319,7 @@ fn cmd_repl() {
     println!("Multi-line: end line with '\\' to continue");
     println!();
 
-    let stdin  = io::stdin();
+    let stdin = io::stdin();
     let stdout = io::stdout();
     let mut interp = ash_interp::Interpreter::new();
     let mut buffer = String::new();
@@ -339,7 +359,7 @@ fn cmd_repl() {
 
         // Handle line continuation
         if trimmed.ends_with('\\') {
-            buffer.push_str(&trimmed[..trimmed.len()-1]);
+            buffer.push_str(&trimmed[..trimmed.len() - 1]);
             buffer.push('\n');
             continuation = true;
             continue;
@@ -426,10 +446,13 @@ fn read_source(path: &Path) -> String {
 }
 
 fn require_file(args: &[String], cmd: &str) -> PathBuf {
-    let path_str = args.iter().find(|a| !a.starts_with('-')).unwrap_or_else(|| {
-        eprintln!("ash: '{cmd}' requires a file argument");
-        process::exit(1);
-    });
+    let path_str = args
+        .iter()
+        .find(|a| !a.starts_with('-'))
+        .unwrap_or_else(|| {
+            eprintln!("ash: '{cmd}' requires a file argument");
+            process::exit(1);
+        });
     let p = PathBuf::from(path_str);
     if !p.exists() {
         eprintln!("ash: file '{}' not found", p.display());

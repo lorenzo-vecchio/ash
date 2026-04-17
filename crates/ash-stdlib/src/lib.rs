@@ -28,10 +28,10 @@
 #[derive(Debug, Clone)]
 pub struct StdlibFn {
     pub namespace: &'static str,
-    pub name:      &'static str,
-    pub params:    &'static [(&'static str, &'static str)], // (name, type)
-    pub ret:       &'static str,
-    pub doc:       &'static str,
+    pub name: &'static str,
+    pub params: &'static [(&'static str, &'static str)], // (name, type)
+    pub ret: &'static str,
+    pub doc: &'static str,
 }
 
 impl StdlibFn {
@@ -67,12 +67,14 @@ pub fn all_functions() -> Vec<StdlibFn> {
 }
 
 pub fn lookup(namespace: &str, name: &str) -> Option<StdlibFn> {
-    all_functions().into_iter().find(|f| f.namespace == namespace && f.name == name)
+    all_functions()
+        .into_iter()
+        .find(|f| f.namespace == namespace && f.name == name)
 }
 
 pub fn lookup_full(full_name: &str) -> Option<StdlibFn> {
     if let Some(dot) = full_name.rfind('.') {
-        lookup(&full_name[..dot], &full_name[dot+1..])
+        lookup(&full_name[..dot], &full_name[dot + 1..])
     } else {
         lookup("", full_name)
     }
@@ -82,26 +84,146 @@ pub fn lookup_full(full_name: &str) -> Option<StdlibFn> {
 
 fn core_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"", name:"print",   params:&[("x","any")],  ret:"void", doc:"Print value without newline" },
-        StdlibFn { namespace:"", name:"println", params:&[("x","any")],  ret:"void", doc:"Print value with newline" },
-        StdlibFn { namespace:"", name:"read",    params:&[],             ret:"str",  doc:"Read a line from stdin" },
-        StdlibFn { namespace:"", name:"fmt",     params:&[("tmpl","str"),("args","any...")], ret:"str", doc:"Format string with {} placeholders" },
-        StdlibFn { namespace:"", name:"int",     params:&[("x","any")],  ret:"int",  doc:"Convert to int" },
-        StdlibFn { namespace:"", name:"float",   params:&[("x","any")],  ret:"float",doc:"Convert to float" },
-        StdlibFn { namespace:"", name:"str",     params:&[("x","any")],  ret:"str",  doc:"Convert to string" },
-        StdlibFn { namespace:"", name:"bool",    params:&[("x","any")],  ret:"bool", doc:"Convert to bool" },
-        StdlibFn { namespace:"", name:"abs",     params:&[("x","num")],  ret:"num",  doc:"Absolute value" },
-        StdlibFn { namespace:"", name:"min",     params:&[("a","T"),("b","T")], ret:"T", doc:"Minimum of two values" },
-        StdlibFn { namespace:"", name:"max",     params:&[("a","T"),("b","T")], ret:"T", doc:"Maximum of two values" },
-        StdlibFn { namespace:"", name:"clamp",   params:&[("x","T"),("lo","T"),("hi","T")], ret:"T", doc:"Clamp x between lo and hi" },
-        StdlibFn { namespace:"", name:"filter",  params:&[("l","[T]"),("f","T=>bool")], ret:"[T]", doc:"Keep elements where f returns true" },
-        StdlibFn { namespace:"", name:"map",     params:&[("l","[T]"),("f","T=>U")], ret:"[U]", doc:"Transform each element" },
-        StdlibFn { namespace:"", name:"reduce",  params:&[("l","[T]"),("f","(U T)=>U"),("init","U")], ret:"U", doc:"Fold list to single value" },
-        StdlibFn { namespace:"", name:"zip",     params:&[("a","[T]"),("b","[U]")], ret:"[(T U)]", doc:"Pair elements from two lists" },
-        StdlibFn { namespace:"", name:"flat",    params:&[("l","[[T]]")], ret:"[T]", doc:"Flatten one level of nesting" },
-        StdlibFn { namespace:"", name:"any",     params:&[("l","[T]"),("f","T=>bool")], ret:"bool", doc:"True if any element matches" },
-        StdlibFn { namespace:"", name:"all",     params:&[("l","[T]"),("f","T=>bool")], ret:"bool", doc:"True if all elements match" },
-        StdlibFn { namespace:"", name:"panic",   params:&[("msg","str")], ret:"void", doc:"Terminate with an error message" },
+        StdlibFn {
+            namespace: "",
+            name: "print",
+            params: &[("x", "any")],
+            ret: "void",
+            doc: "Print value without newline",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "println",
+            params: &[("x", "any")],
+            ret: "void",
+            doc: "Print value with newline",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "read",
+            params: &[],
+            ret: "str",
+            doc: "Read a line from stdin",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "fmt",
+            params: &[("tmpl", "str"), ("args", "any...")],
+            ret: "str",
+            doc: "Format string with {} placeholders",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "int",
+            params: &[("x", "any")],
+            ret: "int",
+            doc: "Convert to int",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "float",
+            params: &[("x", "any")],
+            ret: "float",
+            doc: "Convert to float",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "str",
+            params: &[("x", "any")],
+            ret: "str",
+            doc: "Convert to string",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "bool",
+            params: &[("x", "any")],
+            ret: "bool",
+            doc: "Convert to bool",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "abs",
+            params: &[("x", "num")],
+            ret: "num",
+            doc: "Absolute value",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "min",
+            params: &[("a", "T"), ("b", "T")],
+            ret: "T",
+            doc: "Minimum of two values",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "max",
+            params: &[("a", "T"), ("b", "T")],
+            ret: "T",
+            doc: "Maximum of two values",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "clamp",
+            params: &[("x", "T"), ("lo", "T"), ("hi", "T")],
+            ret: "T",
+            doc: "Clamp x between lo and hi",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "filter",
+            params: &[("l", "[T]"), ("f", "T=>bool")],
+            ret: "[T]",
+            doc: "Keep elements where f returns true",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "map",
+            params: &[("l", "[T]"), ("f", "T=>U")],
+            ret: "[U]",
+            doc: "Transform each element",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "reduce",
+            params: &[("l", "[T]"), ("f", "(U T)=>U"), ("init", "U")],
+            ret: "U",
+            doc: "Fold list to single value",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "zip",
+            params: &[("a", "[T]"), ("b", "[U]")],
+            ret: "[(T U)]",
+            doc: "Pair elements from two lists",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "flat",
+            params: &[("l", "[[T]]")],
+            ret: "[T]",
+            doc: "Flatten one level of nesting",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "any",
+            params: &[("l", "[T]"), ("f", "T=>bool")],
+            ret: "bool",
+            doc: "True if any element matches",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "all",
+            params: &[("l", "[T]"), ("f", "T=>bool")],
+            ret: "bool",
+            doc: "True if all elements match",
+        },
+        StdlibFn {
+            namespace: "",
+            name: "panic",
+            params: &[("msg", "str")],
+            ret: "void",
+            doc: "Terminate with an error message",
+        },
     ]
 }
 
@@ -109,19 +231,97 @@ fn core_fns() -> Vec<StdlibFn> {
 
 fn math_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"math", name:"floor",  params:&[("x","float")], ret:"float", doc:"Round down" },
-        StdlibFn { namespace:"math", name:"ceil",   params:&[("x","float")], ret:"float", doc:"Round up" },
-        StdlibFn { namespace:"math", name:"round",  params:&[("x","float")], ret:"float", doc:"Round to nearest" },
-        StdlibFn { namespace:"math", name:"sqrt",   params:&[("x","float")], ret:"float", doc:"Square root" },
-        StdlibFn { namespace:"math", name:"pow",    params:&[("x","float"),("e","float")], ret:"float", doc:"x raised to e" },
-        StdlibFn { namespace:"math", name:"log",    params:&[("x","float")], ret:"float", doc:"Natural logarithm" },
-        StdlibFn { namespace:"math", name:"log2",   params:&[("x","float")], ret:"float", doc:"Base-2 logarithm" },
-        StdlibFn { namespace:"math", name:"log10",  params:&[("x","float")], ret:"float", doc:"Base-10 logarithm" },
-        StdlibFn { namespace:"math", name:"sin",    params:&[("x","float")], ret:"float", doc:"Sine" },
-        StdlibFn { namespace:"math", name:"cos",    params:&[("x","float")], ret:"float", doc:"Cosine" },
-        StdlibFn { namespace:"math", name:"tan",    params:&[("x","float")], ret:"float", doc:"Tangent" },
-        StdlibFn { namespace:"math", name:"pi",     params:&[], ret:"float", doc:"π constant" },
-        StdlibFn { namespace:"math", name:"e",      params:&[], ret:"float", doc:"Euler's number" },
+        StdlibFn {
+            namespace: "math",
+            name: "floor",
+            params: &[("x", "float")],
+            ret: "float",
+            doc: "Round down",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "ceil",
+            params: &[("x", "float")],
+            ret: "float",
+            doc: "Round up",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "round",
+            params: &[("x", "float")],
+            ret: "float",
+            doc: "Round to nearest",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "sqrt",
+            params: &[("x", "float")],
+            ret: "float",
+            doc: "Square root",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "pow",
+            params: &[("x", "float"), ("e", "float")],
+            ret: "float",
+            doc: "x raised to e",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "log",
+            params: &[("x", "float")],
+            ret: "float",
+            doc: "Natural logarithm",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "log2",
+            params: &[("x", "float")],
+            ret: "float",
+            doc: "Base-2 logarithm",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "log10",
+            params: &[("x", "float")],
+            ret: "float",
+            doc: "Base-10 logarithm",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "sin",
+            params: &[("x", "float")],
+            ret: "float",
+            doc: "Sine",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "cos",
+            params: &[("x", "float")],
+            ret: "float",
+            doc: "Cosine",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "tan",
+            params: &[("x", "float")],
+            ret: "float",
+            doc: "Tangent",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "pi",
+            params: &[],
+            ret: "float",
+            doc: "π constant",
+        },
+        StdlibFn {
+            namespace: "math",
+            name: "e",
+            params: &[],
+            ret: "float",
+            doc: "Euler's number",
+        },
     ]
 }
 
@@ -129,15 +329,69 @@ fn math_fns() -> Vec<StdlibFn> {
 
 fn file_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"file", name:"read",   params:&[("path","str")], ret:"?str",  doc:"Read file contents, None if missing" },
-        StdlibFn { namespace:"file", name:"write",  params:&[("path","str"),("data","str")], ret:"void", doc:"Write data to file, overwriting" },
-        StdlibFn { namespace:"file", name:"append", params:&[("path","str"),("data","str")], ret:"void", doc:"Append data to file" },
-        StdlibFn { namespace:"file", name:"exists", params:&[("path","str")], ret:"bool",  doc:"True if file exists" },
-        StdlibFn { namespace:"file", name:"ls",     params:&[("dir","str")],  ret:"[str]", doc:"List files in directory" },
-        StdlibFn { namespace:"file", name:"rm",     params:&[("path","str")], ret:"void",  doc:"Delete file" },
-        StdlibFn { namespace:"file", name:"mkdir",  params:&[("path","str")], ret:"void",  doc:"Create directory" },
-        StdlibFn { namespace:"file", name:"mv",     params:&[("src","str"),("dst","str")], ret:"void", doc:"Move/rename file" },
-        StdlibFn { namespace:"file", name:"cp",     params:&[("src","str"),("dst","str")], ret:"void", doc:"Copy file" },
+        StdlibFn {
+            namespace: "file",
+            name: "read",
+            params: &[("path", "str")],
+            ret: "?str",
+            doc: "Read file contents, None if missing",
+        },
+        StdlibFn {
+            namespace: "file",
+            name: "write",
+            params: &[("path", "str"), ("data", "str")],
+            ret: "void",
+            doc: "Write data to file, overwriting",
+        },
+        StdlibFn {
+            namespace: "file",
+            name: "append",
+            params: &[("path", "str"), ("data", "str")],
+            ret: "void",
+            doc: "Append data to file",
+        },
+        StdlibFn {
+            namespace: "file",
+            name: "exists",
+            params: &[("path", "str")],
+            ret: "bool",
+            doc: "True if file exists",
+        },
+        StdlibFn {
+            namespace: "file",
+            name: "ls",
+            params: &[("dir", "str")],
+            ret: "[str]",
+            doc: "List files in directory",
+        },
+        StdlibFn {
+            namespace: "file",
+            name: "rm",
+            params: &[("path", "str")],
+            ret: "void",
+            doc: "Delete file",
+        },
+        StdlibFn {
+            namespace: "file",
+            name: "mkdir",
+            params: &[("path", "str")],
+            ret: "void",
+            doc: "Create directory",
+        },
+        StdlibFn {
+            namespace: "file",
+            name: "mv",
+            params: &[("src", "str"), ("dst", "str")],
+            ret: "void",
+            doc: "Move/rename file",
+        },
+        StdlibFn {
+            namespace: "file",
+            name: "cp",
+            params: &[("src", "str"), ("dst", "str")],
+            ret: "void",
+            doc: "Copy file",
+        },
     ]
 }
 
@@ -145,12 +399,48 @@ fn file_fns() -> Vec<StdlibFn> {
 
 fn http_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"http", name:"get",    params:&[("url","str")], ret:"?str", doc:"GET request, returns body" },
-        StdlibFn { namespace:"http", name:"post",   params:&[("url","str"),("body","str")], ret:"?str", doc:"POST request" },
-        StdlibFn { namespace:"http", name:"put",    params:&[("url","str"),("body","str")], ret:"?str", doc:"PUT request" },
-        StdlibFn { namespace:"http", name:"del",    params:&[("url","str")], ret:"?str", doc:"DELETE request" },
-        StdlibFn { namespace:"http", name:"patch",  params:&[("url","str"),("body","str")], ret:"?str", doc:"PATCH request" },
-        StdlibFn { namespace:"http", name:"fetch",  params:&[("url","str"),("opts","{str:any}")], ret:"Response", doc:"Full request with options" },
+        StdlibFn {
+            namespace: "http",
+            name: "get",
+            params: &[("url", "str")],
+            ret: "?str",
+            doc: "GET request, returns body",
+        },
+        StdlibFn {
+            namespace: "http",
+            name: "post",
+            params: &[("url", "str"), ("body", "str")],
+            ret: "?str",
+            doc: "POST request",
+        },
+        StdlibFn {
+            namespace: "http",
+            name: "put",
+            params: &[("url", "str"), ("body", "str")],
+            ret: "?str",
+            doc: "PUT request",
+        },
+        StdlibFn {
+            namespace: "http",
+            name: "del",
+            params: &[("url", "str")],
+            ret: "?str",
+            doc: "DELETE request",
+        },
+        StdlibFn {
+            namespace: "http",
+            name: "patch",
+            params: &[("url", "str"), ("body", "str")],
+            ret: "?str",
+            doc: "PATCH request",
+        },
+        StdlibFn {
+            namespace: "http",
+            name: "fetch",
+            params: &[("url", "str"), ("opts", "{str:any}")],
+            ret: "Response",
+            doc: "Full request with options",
+        },
     ]
 }
 
@@ -158,9 +448,27 @@ fn http_fns() -> Vec<StdlibFn> {
 
 fn json_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"json", name:"parse", params:&[("s","str")], ret:"?any", doc:"Parse JSON string to value" },
-        StdlibFn { namespace:"json", name:"str",   params:&[("x","any")], ret:"str",  doc:"Serialize value to JSON string" },
-        StdlibFn { namespace:"json", name:"pretty",params:&[("x","any")], ret:"str",  doc:"Pretty-print JSON" },
+        StdlibFn {
+            namespace: "json",
+            name: "parse",
+            params: &[("s", "str")],
+            ret: "?any",
+            doc: "Parse JSON string to value",
+        },
+        StdlibFn {
+            namespace: "json",
+            name: "str",
+            params: &[("x", "any")],
+            ret: "str",
+            doc: "Serialize value to JSON string",
+        },
+        StdlibFn {
+            namespace: "json",
+            name: "pretty",
+            params: &[("x", "any")],
+            ret: "str",
+            doc: "Pretty-print JSON",
+        },
     ]
 }
 
@@ -168,11 +476,41 @@ fn json_fns() -> Vec<StdlibFn> {
 
 fn re_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"re", name:"match",   params:&[("pattern","str"),("s","str")], ret:"bool", doc:"True if pattern matches" },
-        StdlibFn { namespace:"re", name:"find",    params:&[("pattern","str"),("s","str")], ret:"?str", doc:"First match or None" },
-        StdlibFn { namespace:"re", name:"findall", params:&[("pattern","str"),("s","str")], ret:"[str]",doc:"All matches" },
-        StdlibFn { namespace:"re", name:"replace", params:&[("pattern","str"),("s","str"),("repl","str")], ret:"str", doc:"Replace all matches" },
-        StdlibFn { namespace:"re", name:"split",   params:&[("pattern","str"),("s","str")], ret:"[str]",doc:"Split on pattern" },
+        StdlibFn {
+            namespace: "re",
+            name: "match",
+            params: &[("pattern", "str"), ("s", "str")],
+            ret: "bool",
+            doc: "True if pattern matches",
+        },
+        StdlibFn {
+            namespace: "re",
+            name: "find",
+            params: &[("pattern", "str"), ("s", "str")],
+            ret: "?str",
+            doc: "First match or None",
+        },
+        StdlibFn {
+            namespace: "re",
+            name: "findall",
+            params: &[("pattern", "str"), ("s", "str")],
+            ret: "[str]",
+            doc: "All matches",
+        },
+        StdlibFn {
+            namespace: "re",
+            name: "replace",
+            params: &[("pattern", "str"), ("s", "str"), ("repl", "str")],
+            ret: "str",
+            doc: "Replace all matches",
+        },
+        StdlibFn {
+            namespace: "re",
+            name: "split",
+            params: &[("pattern", "str"), ("s", "str")],
+            ret: "[str]",
+            doc: "Split on pattern",
+        },
     ]
 }
 
@@ -180,10 +518,34 @@ fn re_fns() -> Vec<StdlibFn> {
 
 fn env_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"env", name:"get",     params:&[("key","str")], ret:"?str",     doc:"Get env var or None" },
-        StdlibFn { namespace:"env", name:"require", params:&[("key","str")], ret:"str",      doc:"Get env var or panic" },
-        StdlibFn { namespace:"env", name:"all",     params:&[], ret:"{str:str}", doc:"All env vars as map" },
-        StdlibFn { namespace:"env", name:"set",     params:&[("key","str"),("val","str")], ret:"void", doc:"Set env var" },
+        StdlibFn {
+            namespace: "env",
+            name: "get",
+            params: &[("key", "str")],
+            ret: "?str",
+            doc: "Get env var or None",
+        },
+        StdlibFn {
+            namespace: "env",
+            name: "require",
+            params: &[("key", "str")],
+            ret: "str",
+            doc: "Get env var or panic",
+        },
+        StdlibFn {
+            namespace: "env",
+            name: "all",
+            params: &[],
+            ret: "{str:str}",
+            doc: "All env vars as map",
+        },
+        StdlibFn {
+            namespace: "env",
+            name: "set",
+            params: &[("key", "str"), ("val", "str")],
+            ret: "void",
+            doc: "Set env var",
+        },
     ]
 }
 
@@ -191,12 +553,48 @@ fn env_fns() -> Vec<StdlibFn> {
 
 fn go_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"go", name:"spawn", params:&[("f","()=>T")],  ret:"Task[T]", doc:"Spawn concurrent task" },
-        StdlibFn { namespace:"go", name:"wait",  params:&[("t","Task[T]")],ret:"T",       doc:"Wait for task result" },
-        StdlibFn { namespace:"go", name:"all",   params:&[("ts","[Task[T]]")], ret:"[T]", doc:"Wait for all tasks" },
-        StdlibFn { namespace:"go", name:"race",  params:&[("ts","[Task[T]]")], ret:"T",   doc:"First task to finish" },
-        StdlibFn { namespace:"go", name:"sleep", params:&[("ms","int")],   ret:"void",   doc:"Sleep for ms milliseconds" },
-        StdlibFn { namespace:"go", name:"chan",  params:&[],               ret:"Chan[T]", doc:"Create a channel" },
+        StdlibFn {
+            namespace: "go",
+            name: "spawn",
+            params: &[("f", "()=>T")],
+            ret: "Task[T]",
+            doc: "Spawn concurrent task",
+        },
+        StdlibFn {
+            namespace: "go",
+            name: "wait",
+            params: &[("t", "Task[T]")],
+            ret: "T",
+            doc: "Wait for task result",
+        },
+        StdlibFn {
+            namespace: "go",
+            name: "all",
+            params: &[("ts", "[Task[T]]")],
+            ret: "[T]",
+            doc: "Wait for all tasks",
+        },
+        StdlibFn {
+            namespace: "go",
+            name: "race",
+            params: &[("ts", "[Task[T]]")],
+            ret: "T",
+            doc: "First task to finish",
+        },
+        StdlibFn {
+            namespace: "go",
+            name: "sleep",
+            params: &[("ms", "int")],
+            ret: "void",
+            doc: "Sleep for ms milliseconds",
+        },
+        StdlibFn {
+            namespace: "go",
+            name: "chan",
+            params: &[],
+            ret: "Chan[T]",
+            doc: "Create a channel",
+        },
     ]
 }
 
@@ -204,11 +602,41 @@ fn go_fns() -> Vec<StdlibFn> {
 
 fn db_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"db", name:"connect", params:&[("url","str")], ret:"Connection", doc:"Connect to a database" },
-        StdlibFn { namespace:"db", name:"query",   params:&[("conn","Connection"),("sql","str"),("args","any...")], ret:"[{str:any}]", doc:"Execute query, return rows" },
-        StdlibFn { namespace:"db", name:"exec",    params:&[("conn","Connection"),("sql","str"),("args","any...")], ret:"int", doc:"Execute statement, return row count" },
-        StdlibFn { namespace:"db", name:"tx",      params:&[("conn","Connection"),("f","Connection=>T")], ret:"T", doc:"Run in transaction, auto-rollback on error" },
-        StdlibFn { namespace:"db", name:"close",   params:&[("conn","Connection")], ret:"void", doc:"Close connection" },
+        StdlibFn {
+            namespace: "db",
+            name: "connect",
+            params: &[("url", "str")],
+            ret: "Connection",
+            doc: "Connect to a database",
+        },
+        StdlibFn {
+            namespace: "db",
+            name: "query",
+            params: &[("conn", "Connection"), ("sql", "str"), ("args", "any...")],
+            ret: "[{str:any}]",
+            doc: "Execute query, return rows",
+        },
+        StdlibFn {
+            namespace: "db",
+            name: "exec",
+            params: &[("conn", "Connection"), ("sql", "str"), ("args", "any...")],
+            ret: "int",
+            doc: "Execute statement, return row count",
+        },
+        StdlibFn {
+            namespace: "db",
+            name: "tx",
+            params: &[("conn", "Connection"), ("f", "Connection=>T")],
+            ret: "T",
+            doc: "Run in transaction, auto-rollback on error",
+        },
+        StdlibFn {
+            namespace: "db",
+            name: "close",
+            params: &[("conn", "Connection")],
+            ret: "void",
+            doc: "Close connection",
+        },
     ]
 }
 
@@ -216,11 +644,41 @@ fn db_fns() -> Vec<StdlibFn> {
 
 fn cache_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"cache", name:"get",   params:&[("key","str")], ret:"?str", doc:"Get cached value" },
-        StdlibFn { namespace:"cache", name:"set",   params:&[("key","str"),("val","str")], ret:"void", doc:"Set cached value" },
-        StdlibFn { namespace:"cache", name:"setex", params:&[("key","str"),("val","str"),("ttl","int")], ret:"void", doc:"Set with TTL in seconds" },
-        StdlibFn { namespace:"cache", name:"del",   params:&[("key","str")], ret:"void", doc:"Delete cached value" },
-        StdlibFn { namespace:"cache", name:"flush", params:&[], ret:"void", doc:"Clear all cached values" },
+        StdlibFn {
+            namespace: "cache",
+            name: "get",
+            params: &[("key", "str")],
+            ret: "?str",
+            doc: "Get cached value",
+        },
+        StdlibFn {
+            namespace: "cache",
+            name: "set",
+            params: &[("key", "str"), ("val", "str")],
+            ret: "void",
+            doc: "Set cached value",
+        },
+        StdlibFn {
+            namespace: "cache",
+            name: "setex",
+            params: &[("key", "str"), ("val", "str"), ("ttl", "int")],
+            ret: "void",
+            doc: "Set with TTL in seconds",
+        },
+        StdlibFn {
+            namespace: "cache",
+            name: "del",
+            params: &[("key", "str")],
+            ret: "void",
+            doc: "Delete cached value",
+        },
+        StdlibFn {
+            namespace: "cache",
+            name: "flush",
+            params: &[],
+            ret: "void",
+            doc: "Clear all cached values",
+        },
     ]
 }
 
@@ -228,10 +686,34 @@ fn cache_fns() -> Vec<StdlibFn> {
 
 fn queue_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"queue", name:"push", params:&[("name","str"),("msg","str")], ret:"void", doc:"Push message to queue" },
-        StdlibFn { namespace:"queue", name:"pop",  params:&[("name","str")], ret:"?str", doc:"Pop message, None if empty" },
-        StdlibFn { namespace:"queue", name:"sub",  params:&[("name","str"),("f","str=>void")], ret:"void", doc:"Subscribe to queue" },
-        StdlibFn { namespace:"queue", name:"len",  params:&[("name","str")], ret:"int", doc:"Queue length" },
+        StdlibFn {
+            namespace: "queue",
+            name: "push",
+            params: &[("name", "str"), ("msg", "str")],
+            ret: "void",
+            doc: "Push message to queue",
+        },
+        StdlibFn {
+            namespace: "queue",
+            name: "pop",
+            params: &[("name", "str")],
+            ret: "?str",
+            doc: "Pop message, None if empty",
+        },
+        StdlibFn {
+            namespace: "queue",
+            name: "sub",
+            params: &[("name", "str"), ("f", "str=>void")],
+            ret: "void",
+            doc: "Subscribe to queue",
+        },
+        StdlibFn {
+            namespace: "queue",
+            name: "len",
+            params: &[("name", "str")],
+            ret: "int",
+            doc: "Queue length",
+        },
     ]
 }
 
@@ -239,10 +721,34 @@ fn queue_fns() -> Vec<StdlibFn> {
 
 fn auth_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"auth", name:"jwt",    params:&[("payload","{str:any}"),("secret","str")], ret:"str", doc:"Sign a JWT" },
-        StdlibFn { namespace:"auth", name:"verify", params:&[("token","str"),("secret","str")], ret:"?{str:any}", doc:"Verify JWT, None if invalid" },
-        StdlibFn { namespace:"auth", name:"hash",   params:&[("password","str")], ret:"str", doc:"Bcrypt hash a password" },
-        StdlibFn { namespace:"auth", name:"check",  params:&[("password","str"),("hash","str")], ret:"bool", doc:"Verify password against hash" },
+        StdlibFn {
+            namespace: "auth",
+            name: "jwt",
+            params: &[("payload", "{str:any}"), ("secret", "str")],
+            ret: "str",
+            doc: "Sign a JWT",
+        },
+        StdlibFn {
+            namespace: "auth",
+            name: "verify",
+            params: &[("token", "str"), ("secret", "str")],
+            ret: "?{str:any}",
+            doc: "Verify JWT, None if invalid",
+        },
+        StdlibFn {
+            namespace: "auth",
+            name: "hash",
+            params: &[("password", "str")],
+            ret: "str",
+            doc: "Bcrypt hash a password",
+        },
+        StdlibFn {
+            namespace: "auth",
+            name: "check",
+            params: &[("password", "str"), ("hash", "str")],
+            ret: "bool",
+            doc: "Verify password against hash",
+        },
     ]
 }
 
@@ -250,8 +756,20 @@ fn auth_fns() -> Vec<StdlibFn> {
 
 fn mail_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"mail", name:"send", params:&[("to","str"),("subject","str"),("body","str")], ret:"void", doc:"Send plain text email" },
-        StdlibFn { namespace:"mail", name:"html", params:&[("to","str"),("subject","str"),("body","str")], ret:"void", doc:"Send HTML email" },
+        StdlibFn {
+            namespace: "mail",
+            name: "send",
+            params: &[("to", "str"), ("subject", "str"), ("body", "str")],
+            ret: "void",
+            doc: "Send plain text email",
+        },
+        StdlibFn {
+            namespace: "mail",
+            name: "html",
+            params: &[("to", "str"), ("subject", "str"), ("body", "str")],
+            ret: "void",
+            doc: "Send HTML email",
+        },
     ]
 }
 
@@ -259,11 +777,41 @@ fn mail_fns() -> Vec<StdlibFn> {
 
 fn store_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"store", name:"put",  params:&[("key","str"),("data","str")], ret:"?str", doc:"Upload data, returns URL" },
-        StdlibFn { namespace:"store", name:"get",  params:&[("key","str")], ret:"?str", doc:"Download data" },
-        StdlibFn { namespace:"store", name:"del",  params:&[("key","str")], ret:"void", doc:"Delete object" },
-        StdlibFn { namespace:"store", name:"url",  params:&[("key","str")], ret:"?str", doc:"Get public URL" },
-        StdlibFn { namespace:"store", name:"list", params:&[("prefix","str")], ret:"[str]", doc:"List keys with prefix" },
+        StdlibFn {
+            namespace: "store",
+            name: "put",
+            params: &[("key", "str"), ("data", "str")],
+            ret: "?str",
+            doc: "Upload data, returns URL",
+        },
+        StdlibFn {
+            namespace: "store",
+            name: "get",
+            params: &[("key", "str")],
+            ret: "?str",
+            doc: "Download data",
+        },
+        StdlibFn {
+            namespace: "store",
+            name: "del",
+            params: &[("key", "str")],
+            ret: "void",
+            doc: "Delete object",
+        },
+        StdlibFn {
+            namespace: "store",
+            name: "url",
+            params: &[("key", "str")],
+            ret: "?str",
+            doc: "Get public URL",
+        },
+        StdlibFn {
+            namespace: "store",
+            name: "list",
+            params: &[("prefix", "str")],
+            ret: "[str]",
+            doc: "List keys with prefix",
+        },
     ]
 }
 
@@ -271,12 +819,48 @@ fn store_fns() -> Vec<StdlibFn> {
 
 fn ai_fns() -> Vec<StdlibFn> {
     vec![
-        StdlibFn { namespace:"ai", name:"complete",   params:&[("prompt","str")], ret:"?str", doc:"LLM text completion" },
-        StdlibFn { namespace:"ai", name:"chat",       params:&[("messages","[{str:str}]")], ret:"?str", doc:"LLM chat completion" },
-        StdlibFn { namespace:"ai", name:"embed",      params:&[("text","str")], ret:"[float]", doc:"Text embedding vector" },
-        StdlibFn { namespace:"ai", name:"similarity", params:&[("a","[float]"),("b","[float]")], ret:"float", doc:"Cosine similarity" },
-        StdlibFn { namespace:"ai", name:"classify",   params:&[("text","str"),("labels","[str]")], ret:"str", doc:"Zero-shot classification" },
-        StdlibFn { namespace:"ai", name:"moderate",   params:&[("text","str")], ret:"bool", doc:"Content moderation check" },
+        StdlibFn {
+            namespace: "ai",
+            name: "complete",
+            params: &[("prompt", "str")],
+            ret: "?str",
+            doc: "LLM text completion",
+        },
+        StdlibFn {
+            namespace: "ai",
+            name: "chat",
+            params: &[("messages", "[{str:str}]")],
+            ret: "?str",
+            doc: "LLM chat completion",
+        },
+        StdlibFn {
+            namespace: "ai",
+            name: "embed",
+            params: &[("text", "str")],
+            ret: "[float]",
+            doc: "Text embedding vector",
+        },
+        StdlibFn {
+            namespace: "ai",
+            name: "similarity",
+            params: &[("a", "[float]"), ("b", "[float]")],
+            ret: "float",
+            doc: "Cosine similarity",
+        },
+        StdlibFn {
+            namespace: "ai",
+            name: "classify",
+            params: &[("text", "str"), ("labels", "[str]")],
+            ret: "str",
+            doc: "Zero-shot classification",
+        },
+        StdlibFn {
+            namespace: "ai",
+            name: "moderate",
+            params: &[("text", "str")],
+            ret: "bool",
+            doc: "Content moderation check",
+        },
     ]
 }
 
@@ -298,30 +882,64 @@ impl RuntimeContext {
 
 /// Math operations — pure, no IO
 pub mod math {
-    pub fn floor(x: f64)  -> f64 { x.floor() }
-    pub fn ceil(x: f64)   -> f64 { x.ceil() }
-    pub fn round(x: f64)  -> f64 { x.round() }
-    pub fn sqrt(x: f64)   -> f64 { x.sqrt() }
-    pub fn pow(x: f64, e: f64) -> f64 { x.powf(e) }
-    pub fn log(x: f64)    -> f64 { x.ln() }
-    pub fn log2(x: f64)   -> f64 { x.log2() }
-    pub fn log10(x: f64)  -> f64 { x.log10() }
-    pub fn sin(x: f64)    -> f64 { x.sin() }
-    pub fn cos(x: f64)    -> f64 { x.cos() }
-    pub fn tan(x: f64)    -> f64 { x.tan() }
-    pub fn pi()            -> f64 { std::f64::consts::PI }
-    pub fn e()             -> f64 { std::f64::consts::E }
-    pub fn clamp(x: f64, lo: f64, hi: f64) -> f64 { x.clamp(lo, hi) }
-    pub fn clamp_int(x: i64, lo: i64, hi: i64) -> i64 { x.clamp(lo, hi) }
+    pub fn floor(x: f64) -> f64 {
+        x.floor()
+    }
+    pub fn ceil(x: f64) -> f64 {
+        x.ceil()
+    }
+    pub fn round(x: f64) -> f64 {
+        x.round()
+    }
+    pub fn sqrt(x: f64) -> f64 {
+        x.sqrt()
+    }
+    pub fn pow(x: f64, e: f64) -> f64 {
+        x.powf(e)
+    }
+    pub fn log(x: f64) -> f64 {
+        x.ln()
+    }
+    pub fn log2(x: f64) -> f64 {
+        x.log2()
+    }
+    pub fn log10(x: f64) -> f64 {
+        x.log10()
+    }
+    pub fn sin(x: f64) -> f64 {
+        x.sin()
+    }
+    pub fn cos(x: f64) -> f64 {
+        x.cos()
+    }
+    pub fn tan(x: f64) -> f64 {
+        x.tan()
+    }
+    pub fn pi() -> f64 {
+        std::f64::consts::PI
+    }
+    pub fn e() -> f64 {
+        std::f64::consts::E
+    }
+    pub fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+        x.clamp(lo, hi)
+    }
+    pub fn clamp_int(x: i64, lo: i64, hi: i64) -> i64 {
+        x.clamp(lo, hi)
+    }
 }
 
 /// Environment variable access
 pub mod env {
-    pub fn get(key: &str) -> Option<String> { std::env::var(key).ok() }
+    pub fn get(key: &str) -> Option<String> {
+        std::env::var(key).ok()
+    }
     pub fn require(key: &str) -> Result<String, String> {
         std::env::var(key).map_err(|_| format!("required env var '{key}' is not set"))
     }
-    pub fn all() -> Vec<(String, String)> { std::env::vars().collect() }
+    pub fn all() -> Vec<(String, String)> {
+        std::env::vars().collect()
+    }
 }
 
 /// File operations
@@ -336,11 +954,16 @@ pub mod file {
     }
     pub fn append(path: &str, data: &str) -> Result<(), String> {
         use std::io::Write;
-        let mut f = std::fs::OpenOptions::new().append(true).create(true).open(path)
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path)
             .map_err(|e| e.to_string())?;
         f.write_all(data.as_bytes()).map_err(|e| e.to_string())
     }
-    pub fn exists(path: &str) -> bool { Path::new(path).exists() }
+    pub fn exists(path: &str) -> bool {
+        Path::new(path).exists()
+    }
     pub fn ls(dir: &str) -> Result<Vec<String>, String> {
         let entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
         Ok(entries
@@ -370,10 +993,12 @@ pub mod json {
         // Very basic validation — just check it starts/ends with {} or [] or is a scalar
         let s = s.trim();
         (s.starts_with('{') && s.ends_with('}'))
-        || (s.starts_with('[') && s.ends_with(']'))
-        || s.starts_with('"')
-        || s.parse::<f64>().is_ok()
-        || s == "true" || s == "false" || s == "null"
+            || (s.starts_with('[') && s.ends_with(']'))
+            || s.starts_with('"')
+            || s.parse::<f64>().is_ok()
+            || s == "true"
+            || s == "false"
+            || s == "null"
     }
 }
 
@@ -385,7 +1010,9 @@ pub fn interpolate(template: &str, vars: &std::collections::HashMap<String, Stri
         if c == '{' {
             let mut name = String::new();
             for inner in chars.by_ref() {
-                if inner == '}' { break; }
+                if inner == '}' {
+                    break;
+                }
                 name.push(inner);
             }
             if let Some(val) = vars.get(&name) {
@@ -429,20 +1056,20 @@ mod tests {
 
     #[test]
     fn test_namespaced_functions_present() {
-        assert!(lookup("math",  "sqrt").is_some());
-        assert!(lookup("file",  "read").is_some());
-        assert!(lookup("http",  "get").is_some());
-        assert!(lookup("json",  "parse").is_some());
-        assert!(lookup("re",    "match").is_some());
-        assert!(lookup("env",   "get").is_some());
-        assert!(lookup("go",    "spawn").is_some());
-        assert!(lookup("db",    "connect").is_some());
+        assert!(lookup("math", "sqrt").is_some());
+        assert!(lookup("file", "read").is_some());
+        assert!(lookup("http", "get").is_some());
+        assert!(lookup("json", "parse").is_some());
+        assert!(lookup("re", "match").is_some());
+        assert!(lookup("env", "get").is_some());
+        assert!(lookup("go", "spawn").is_some());
+        assert!(lookup("db", "connect").is_some());
         assert!(lookup("cache", "get").is_some());
         assert!(lookup("queue", "push").is_some());
-        assert!(lookup("auth",  "jwt").is_some());
-        assert!(lookup("mail",  "send").is_some());
+        assert!(lookup("auth", "jwt").is_some());
+        assert!(lookup("mail", "send").is_some());
         assert!(lookup("store", "put").is_some());
-        assert!(lookup("ai",    "complete").is_some());
+        assert!(lookup("ai", "complete").is_some());
     }
 
     #[test]
@@ -508,7 +1135,7 @@ mod tests {
     #[test]
     fn test_math_pi_e() {
         assert!((math::pi() - std::f64::consts::PI).abs() < 1e-15);
-        assert!((math::e()  - std::f64::consts::E ).abs() < 1e-15);
+        assert!((math::e() - std::f64::consts::E).abs() < 1e-15);
     }
 
     #[test]
