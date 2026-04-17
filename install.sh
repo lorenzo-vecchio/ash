@@ -102,19 +102,34 @@ mv "${TMP}/${ASSET}" "${BIN_DIR}/${BINARY}"
 
 say "Installed to ${BIN_DIR}/${BINARY}"
 
-# ── PATH advice ────────────────────────────────────────────────────────────────
+# ── PATH — auto-add to shell profile if needed ─────────────────────────────────
 
 case ":${PATH}:" in
-    *":${BIN_DIR}:"*) ;;  # already on PATH
+    *":${BIN_DIR}:"*) ;;  # already on PATH, nothing to do
     *)
-        warn "${BIN_DIR} is not on your PATH"
-        echo ""
-        echo "  Add this line to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
-        echo ""
-        echo "    export PATH=\"\$PATH:${BIN_DIR}\""
-        echo ""
-        echo "  Then restart your shell or run:  source ~/.zshrc"
-        echo ""
+        # Detect which profile file to write to
+        if [ -n "$ZSH_VERSION" ] || [ "$(basename "$SHELL")" = "zsh" ]; then
+            PROFILE="$HOME/.zshrc"
+        elif [ -n "$BASH_VERSION" ] || [ "$(basename "$SHELL")" = "bash" ]; then
+            if [ -f "$HOME/.bash_profile" ]; then
+                PROFILE="$HOME/.bash_profile"
+            else
+                PROFILE="$HOME/.bashrc"
+            fi
+        else
+            PROFILE="$HOME/.profile"
+        fi
+
+        LINE="export PATH=\"\$PATH:${BIN_DIR}\""
+
+        # Only append if the line isn't already in the file
+        if ! grep -qF "$LINE" "$PROFILE" 2>/dev/null; then
+            printf '\n# Ash language toolchain\n%s\n' "$LINE" >> "$PROFILE"
+            say "Added ${BIN_DIR} to PATH in ${PROFILE}"
+        fi
+
+        # Also export for the current session
+        export PATH="$PATH:${BIN_DIR}"
         ;;
 esac
 

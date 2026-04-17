@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "ash"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "ash-codegen",
  "ash-hir",
@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "ash-codegen"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "ash-hir",
  "ash-lexer",
@@ -57,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "ash-hir"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "ash-lexer",
  "ash-parser",
@@ -65,7 +65,7 @@ dependencies = [
 
 [[package]]
 name = "ash-interp"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "ash-hir",
  "ash-lexer",
@@ -80,11 +80,11 @@ dependencies = [
 
 [[package]]
 name = "ash-lexer"
-version = "0.1.5"
+version = "0.1.6"
 
 [[package]]
 name = "ash-lsp"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "ash-lexer",
  "ash-parser",
@@ -96,18 +96,18 @@ dependencies = [
 
 [[package]]
 name = "ash-parser"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "ash-lexer",
 ]
 
 [[package]]
 name = "ash-stdlib"
-version = "0.1.5"
+version = "0.1.6"
 
 [[package]]
 name = "ash-typeck"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "ash-hir",
  "ash-lexer",
