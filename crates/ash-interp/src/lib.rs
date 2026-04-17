@@ -27,6 +27,10 @@ pub enum Value {
     Struct(String, HashMap<String, Value>),
     // Callable
     Fn(FnValue),
+    // Concurrent task handle (go.spawn)
+    Task(std::sync::Arc<std::sync::Mutex<Option<Value>>>),
+    // Database connection handle (db.connect)
+    Connection(std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>),
     // Unit / void
     Unit,
 }
@@ -99,6 +103,8 @@ impl fmt::Display for Value {
                 write!(f, "({})", ss.join(", "))
             }
             Value::Fn(fv) => write!(f, "<fn {}>", fv.name.as_deref().unwrap_or("anonymous")),
+            Value::Task(_) => write!(f, "<task>"),
+            Value::Connection(_) => write!(f, "<db-connection>"),
         }
     }
 }
@@ -1220,6 +1226,246 @@ impl Env {
                         }
                         _ => Err(InterpError::runtime("math.clamp requires numbers")),
                     }
+                })),
+                closure: Env::default(),
+            }),
+        );
+
+        // -- go.* ------------------------------------------------------------
+        self.define(
+            "go.sleep",
+            Value::Fn(FnValue {
+                name: Some("go.sleep".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let ms = match args.first() {
+                        Some(Value::Int(n)) => *n as u64,
+                        _ => return Err(InterpError::runtime("go.sleep(ms: int)")),
+                    };
+                    std::thread::sleep(std::time::Duration::from_millis(ms));
+                    Ok(Value::Unit)
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "go.spawn",
+            Value::Fn(FnValue {
+                name: Some("go.spawn".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|_args| {
+                    Err(InterpError::runtime(
+                        "go.spawn() must be called through interpreter (needs fn dispatch)",
+                    ))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "go.wait",
+            Value::Fn(FnValue {
+                name: Some("go.wait".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    match args.first() {
+                        Some(Value::Task(slot)) => {
+                            // Spin until the task deposits a result
+                            loop {
+                                let v = slot.lock().unwrap().take();
+                                if let Some(val) = v {
+                                    return Ok(val);
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(1));
+                            }
+                        }
+                        _ => Err(InterpError::runtime("go.wait requires a task handle")),
+                    }
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "go.all",
+            Value::Fn(FnValue {
+                name: Some("go.all".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let tasks = match args.first() {
+                        Some(Value::List(l)) => l.clone(),
+                        _ => return Err(InterpError::runtime("go.all requires a list of tasks")),
+                    };
+                    let mut results = Vec::with_capacity(tasks.len());
+                    for t in &tasks {
+                        match t {
+                            Value::Task(slot) => loop {
+                                let v = slot.lock().unwrap().take();
+                                if let Some(val) = v {
+                                    results.push(val);
+                                    break;
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(1));
+                            },
+                            _ => {
+                                return Err(InterpError::runtime(
+                                    "go.all: list must contain task handles",
+                                ))
+                            }
+                        }
+                    }
+                    Ok(Value::List(results))
+                })),
+                closure: Env::default(),
+            }),
+        );
+
+        // -- db.* (SQLite via rusqlite) --------------------------------------
+        self.define(
+            "db.connect",
+            Value::Fn(FnValue {
+                name: Some("db.connect".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let url = match args.first() {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => return Err(InterpError::runtime("db.connect(url: str)")),
+                    };
+                    let path = url
+                        .strip_prefix("sqlite://")
+                        .or_else(|| url.strip_prefix("sqlite:///"))
+                        .unwrap_or(&url);
+                    let conn = if path == ":memory:" || path.is_empty() {
+                        rusqlite::Connection::open_in_memory()
+                    } else {
+                        rusqlite::Connection::open(path)
+                    }
+                    .map_err(|e| InterpError::runtime(e.to_string()))?;
+                    Ok(Value::Connection(std::sync::Arc::new(
+                        std::sync::Mutex::new(conn),
+                    )))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "db.exec",
+            Value::Fn(FnValue {
+                name: Some("db.exec".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    if args.len() < 2 {
+                        return Err(InterpError::runtime("db.exec(conn, sql)"));
+                    }
+                    let conn = match &args[0] {
+                        Value::Connection(c) => c.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "db.exec: first arg must be a connection",
+                            ))
+                        }
+                    };
+                    let sql = match &args[1] {
+                        Value::Str(s) => s.clone(),
+                        _ => return Err(InterpError::runtime("db.exec: sql must be string")),
+                    };
+                    let rows = conn
+                        .lock()
+                        .unwrap()
+                        .execute(&sql, [])
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+                    Ok(Value::Int(rows as i64))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "db.query",
+            Value::Fn(FnValue {
+                name: Some("db.query".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    if args.len() < 2 {
+                        return Err(InterpError::runtime("db.query(conn, sql)"));
+                    }
+                    let conn = match &args[0] {
+                        Value::Connection(c) => c.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "db.query: first arg must be a connection",
+                            ))
+                        }
+                    };
+                    let sql = match &args[1] {
+                        Value::Str(s) => s.clone(),
+                        _ => return Err(InterpError::runtime("db.query: sql must be string")),
+                    };
+                    let guard = conn.lock().unwrap();
+                    let mut stmt = guard
+                        .prepare(&sql)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+                    let col_names: Vec<String> = stmt
+                        .column_names()
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect();
+                    let rows: Vec<Value> = stmt
+                        .query_map([], |row| {
+                            let mut map: Vec<(Value, Value)> = Vec::new();
+                            for (i, name) in col_names.iter().enumerate() {
+                                let v: rusqlite::types::Value = row.get(i)?;
+                                let av = match v {
+                                    rusqlite::types::Value::Null => Value::Option(None),
+                                    rusqlite::types::Value::Integer(n) => Value::Int(n),
+                                    rusqlite::types::Value::Real(f) => Value::Float(f),
+                                    rusqlite::types::Value::Text(s) => Value::Str(s),
+                                    rusqlite::types::Value::Blob(b) => {
+                                        Value::Str(String::from_utf8_lossy(&b).into_owned())
+                                    }
+                                };
+                                map.push((Value::Str(name.clone()), av));
+                            }
+                            Ok(Value::Map(map))
+                        })
+                        .map_err(|e| InterpError::runtime(e.to_string()))?
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    Ok(Value::List(rows))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "db.close",
+            Value::Fn(FnValue {
+                name: Some("db.close".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|_args| {
+                    // Connection is reference-counted; closing is handled by drop.
+                    Ok(Value::Unit)
+                })),
+                closure: Env::default(),
+            }),
+        );
+
+        // -- assert (core builtin for ash test) ------------------------------
+        self.define(
+            "assert",
+            Value::Fn(FnValue {
+                name: Some("assert".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let cond = match args.first() {
+                        Some(Value::Bool(b)) => *b,
+                        Some(other) => !matches!(other, Value::Unit | Value::Option(None)),
+                        None => false,
+                    };
+                    if !cond {
+                        let msg = match args.get(1) {
+                            Some(Value::Str(s)) => s.clone(),
+                            _ => "assertion failed".to_string(),
+                        };
+                        return Err(InterpError::panic(msg));
+                    }
+                    Ok(Value::Unit)
                 })),
                 closure: Env::default(),
             }),
@@ -2541,6 +2787,8 @@ fn value_to_json(v: &Value) -> serde_json::Value {
             }
         }
         Value::Fn(_) => serde_json::Value::String("<fn>".to_string()),
+        Value::Task(_) => serde_json::Value::String("<task>".to_string()),
+        Value::Connection(_) => serde_json::Value::String("<connection>".to_string()),
     }
 }
 
