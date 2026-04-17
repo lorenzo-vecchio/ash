@@ -16,7 +16,9 @@
       "Bash(grep -v \"^$\")",
       "Bash(cargo search:*)",
       "Bash(cargo check:*)",
-      "Bash(git tag:*)"
+      "Bash(git tag:*)",
+      "Bash(grep:*)",
+      "Bash(grep -n '\"\"version\"\"' /Users/lorenzovecchio/Desktop/REPOSITORY/ash/ash-vscode/package.json)"
     ]
   }
 }
