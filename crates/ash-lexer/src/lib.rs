@@ -38,29 +38,29 @@ pub enum Token {
     Percent,
 
     // Comparison
-    EqEq,   // ==
-    NotEq,  // !=
-    Lt,     // <
-    Gt,     // >
-    LtEq,   // <=
-    GtEq,   // >=
+    EqEq,  // ==
+    NotEq, // !=
+    Lt,    // <
+    Gt,    // >
+    LtEq,  // <=
+    GtEq,  // >=
 
     // Logic
-    And,    // &&
-    Or,     // ||
-    Not,    // !
+    And, // &&
+    Or,  // ||
+    Not, // !
 
     // Assignment / arrows
-    Assign,     // =
-    FatArrow,   // =>
-    ThinArrow,  // ->
+    Assign,    // =
+    FatArrow,  // =>
+    ThinArrow, // ->
 
     // Pipeline & null-safety
-    Pipe,           // |>
-    Question,       // ?
-    NullCoalesce,   // ??
-    SafeDot,        // ?.
-    Bang,           // ! (error propagation, post-fix)
+    Pipe,         // |>
+    Question,     // ?
+    NullCoalesce, // ??
+    SafeDot,      // ?.
+    Bang,         // ! (error propagation, post-fix)
 
     // Punctuation
     LParen,
@@ -72,9 +72,9 @@ pub enum Token {
     Comma,
     Colon,
     Dot,
-    DotDot,  // ..
-    Amp,     // & (borrow)
-    Pipe1,   // | (union / match arm)
+    DotDot, // ..
+    Amp,    // & (borrow)
+    Pipe1,  // | (union / match arm)
 
     // Structure (synthetic)
     Newline,
@@ -86,63 +86,63 @@ pub enum Token {
 impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            Token::Int(n)        => return write!(f, "int({n})"),
-            Token::Float(n)      => return write!(f, "float({n})"),
-            Token::Str(s)        => return write!(f, "\"{}\"", s),
-            Token::Bool(b)       => return write!(f, "{b}"),
-            Token::Ident(s)      => return write!(f, "{s}"),
-            Token::Fn            => "fn",
-            Token::Let           => "let",
-            Token::Mut           => "mut",
-            Token::If            => "if",
-            Token::Else          => "else",
-            Token::Return        => "return",
-            Token::While         => "while",
-            Token::For           => "for",
-            Token::In            => "in",
-            Token::Match         => "match",
-            Token::Type          => "type",
-            Token::Move          => "move",
-            Token::Await         => "await",
-            Token::Panic         => "panic",
-            Token::Plus          => "+",
-            Token::Minus         => "-",
-            Token::Star          => "*",
-            Token::Slash         => "/",
-            Token::Percent       => "%",
-            Token::EqEq          => "==",
-            Token::NotEq         => "!=",
-            Token::Lt            => "<",
-            Token::Gt            => ">",
-            Token::LtEq          => "<=",
-            Token::GtEq          => ">=",
-            Token::And           => "&&",
-            Token::Or            => "||",
-            Token::Not           => "!",
-            Token::Assign        => "=",
-            Token::FatArrow      => "=>",
-            Token::ThinArrow     => "->",
-            Token::Pipe          => "|>",
-            Token::Question      => "?",
-            Token::NullCoalesce  => "??",
-            Token::SafeDot       => "?.",
-            Token::Bang          => "!",
-            Token::LParen        => "(",
-            Token::RParen        => ")",
-            Token::LBracket      => "[",
-            Token::RBracket      => "]",
-            Token::LBrace        => "{",
-            Token::RBrace        => "}",
-            Token::Comma         => ",",
-            Token::Colon         => ":",
-            Token::Dot           => ".",
-            Token::DotDot        => "..",
-            Token::Amp           => "&",
-            Token::Pipe1         => "|",
-            Token::Newline       => "\\n",
-            Token::Indent        => "<INDENT>",
-            Token::Dedent        => "<DEDENT>",
-            Token::Eof           => "<EOF>",
+            Token::Int(n) => return write!(f, "int({n})"),
+            Token::Float(n) => return write!(f, "float({n})"),
+            Token::Str(s) => return write!(f, "\"{}\"", s),
+            Token::Bool(b) => return write!(f, "{b}"),
+            Token::Ident(s) => return write!(f, "{s}"),
+            Token::Fn => "fn",
+            Token::Let => "let",
+            Token::Mut => "mut",
+            Token::If => "if",
+            Token::Else => "else",
+            Token::Return => "return",
+            Token::While => "while",
+            Token::For => "for",
+            Token::In => "in",
+            Token::Match => "match",
+            Token::Type => "type",
+            Token::Move => "move",
+            Token::Await => "await",
+            Token::Panic => "panic",
+            Token::Plus => "+",
+            Token::Minus => "-",
+            Token::Star => "*",
+            Token::Slash => "/",
+            Token::Percent => "%",
+            Token::EqEq => "==",
+            Token::NotEq => "!=",
+            Token::Lt => "<",
+            Token::Gt => ">",
+            Token::LtEq => "<=",
+            Token::GtEq => ">=",
+            Token::And => "&&",
+            Token::Or => "||",
+            Token::Not => "!",
+            Token::Assign => "=",
+            Token::FatArrow => "=>",
+            Token::ThinArrow => "->",
+            Token::Pipe => "|>",
+            Token::Question => "?",
+            Token::NullCoalesce => "??",
+            Token::SafeDot => "?.",
+            Token::Bang => "!",
+            Token::LParen => "(",
+            Token::RParen => ")",
+            Token::LBracket => "[",
+            Token::RBracket => "]",
+            Token::LBrace => "{",
+            Token::RBrace => "}",
+            Token::Comma => ",",
+            Token::Colon => ":",
+            Token::Dot => ".",
+            Token::DotDot => "..",
+            Token::Amp => "&",
+            Token::Pipe1 => "|",
+            Token::Newline => "\\n",
+            Token::Indent => "<INDENT>",
+            Token::Dedent => "<DEDENT>",
+            Token::Eof => "<EOF>",
         };
         write!(f, "{s}")
     }
@@ -164,7 +164,11 @@ impl Span {
 
     /// Merge two spans into one covering both.
     pub fn merge(&self, other: &Span) -> Span {
-        Span { line: self.line, col: self.col, len: other.col + other.len - self.col }
+        Span {
+            line: self.line,
+            col: self.col,
+            len: other.col + other.len - self.col,
+        }
     }
 }
 
@@ -261,12 +265,19 @@ impl Lexer {
     }
 
     fn spanned(&self, tok: Token, start_col: usize, start_line: usize) -> SpannedToken {
-        let len = if start_line == self.line { self.col - start_col } else { 1 };
+        let len = if start_line == self.line {
+            self.col - start_col
+        } else {
+            1
+        };
         Spanned::new(tok, Span::new(start_line, start_col, len))
     }
 
     fn err(&self, msg: impl Into<String>) -> LexError {
-        LexError { msg: msg.into(), span: self.here() }
+        LexError {
+            msg: msg.into(),
+            span: self.here(),
+        }
     }
 
     // ── indentation handling ─────────────────────────────────────────────────
@@ -277,9 +288,15 @@ impl Lexer {
         let mut count = 0usize;
         while i < self.src.len() {
             match self.src[i] {
-                ' '  => { count += 1; i += 1; }
-                '\t' => { count += 4; i += 1; }
-                _    => break,
+                ' ' => {
+                    count += 1;
+                    i += 1;
+                }
+                '\t' => {
+                    count += 4;
+                    i += 1;
+                }
+                _ => break,
             }
         }
         count
@@ -300,7 +317,9 @@ impl Lexer {
             let tok = self.next_token()?;
             let done = tok.node == Token::Eof;
             out.push(tok);
-            if done { break; }
+            if done {
+                break;
+            }
         }
         // Flush any remaining dedents
         let cur_indent = *self.indent_stack.last().unwrap();
@@ -362,8 +381,12 @@ impl Lexer {
                     }
                     return Ok(Spanned::new(Token::Eof, sp));
                 }
-                Some(' ') | Some('\t') => { self.advance(); }
-                Some('\r') => { self.advance(); }
+                Some(' ') | Some('\t') => {
+                    self.advance();
+                }
+                Some('\r') => {
+                    self.advance();
+                }
                 Some('#') => {
                     // Line comment — skip to end of line
                     while !matches!(self.peek(), None | Some('\n')) {
@@ -374,7 +397,9 @@ impl Lexer {
                     self.advance();
                     self.at_line_start = true;
                     // Ignore newlines inside brackets
-                    if self.nesting > 0 { continue; }
+                    if self.nesting > 0 {
+                        continue;
+                    }
                     return Ok(Spanned::new(Token::Newline, self.here()));
                 }
                 _ => break,
@@ -387,9 +412,9 @@ impl Lexer {
         match self.peek() {
             None => Ok(Spanned::new(Token::Eof, self.here())),
             Some(c) if c.is_ascii_digit() => self.lex_number(sl, sc),
-            Some('"') | Some('\'')        => self.lex_string(sl, sc),
+            Some('"') | Some('\'') => self.lex_string(sl, sc),
             Some(c) if c.is_alphabetic() || c == '_' => self.lex_ident(sl, sc),
-            _                             => self.lex_symbol(sl, sc),
+            _ => self.lex_symbol(sl, sc),
         }
     }
 
@@ -401,20 +426,26 @@ impl Lexer {
 
         while let Some(c) = self.peek() {
             if c.is_ascii_digit() {
-                s.push(c); self.advance();
+                s.push(c);
+                self.advance();
             } else if c == '.' && self.peek_at(1).map_or(false, |x| x.is_ascii_digit()) {
                 is_float = true;
-                s.push(c); self.advance();
+                s.push(c);
+                self.advance();
             } else {
                 break;
             }
         }
 
         if is_float {
-            let f: f64 = s.parse().map_err(|_| self.err(format!("invalid float '{s}'")))?;
+            let f: f64 = s
+                .parse()
+                .map_err(|_| self.err(format!("invalid float '{s}'")))?;
             Ok(self.spanned(Token::Float(f), sc, sl))
         } else {
-            let i: i64 = s.parse().map_err(|_| self.err(format!("invalid int '{s}'")))?;
+            let i: i64 = s
+                .parse()
+                .map_err(|_| self.err(format!("invalid int '{s}'")))?;
             Ok(self.spanned(Token::Int(i), sc, sl))
         }
     }
@@ -426,18 +457,21 @@ impl Lexer {
         let mut s = String::new();
         loop {
             match self.advance() {
-                None    => return Err(self.err("unterminated string literal")),
+                None => return Err(self.err("unterminated string literal")),
                 Some(c) if c == quote => break,
                 Some('\\') => match self.advance() {
-                    Some('n')  => s.push('\n'),
-                    Some('t')  => s.push('\t'),
-                    Some('r')  => s.push('\r'),
+                    Some('n') => s.push('\n'),
+                    Some('t') => s.push('\t'),
+                    Some('r') => s.push('\r'),
                     Some('\\') => s.push('\\'),
-                    Some('"')  => s.push('"'),
+                    Some('"') => s.push('"'),
                     Some('\'') => s.push('\''),
-                    Some('{')  => s.push('{'),
-                    Some(c)    => { s.push('\\'); s.push(c); }
-                    None       => return Err(self.err("unexpected EOF in string escape")),
+                    Some('{') => s.push('{'),
+                    Some(c) => {
+                        s.push('\\');
+                        s.push(c);
+                    }
+                    None => return Err(self.err("unexpected EOF in string escape")),
                 },
                 Some(c) => s.push(c),
             }
@@ -450,26 +484,31 @@ impl Lexer {
     fn lex_ident(&mut self, sl: usize, sc: usize) -> Result<SpannedToken, LexError> {
         let mut s = String::new();
         while let Some(c) = self.peek() {
-            if c.is_alphanumeric() || c == '_' { s.push(c); self.advance(); } else { break; }
+            if c.is_alphanumeric() || c == '_' {
+                s.push(c);
+                self.advance();
+            } else {
+                break;
+            }
         }
         let tok = match s.as_str() {
-            "fn"     => Token::Fn,
-            "let"    => Token::Let,
-            "mut"    => Token::Mut,
-            "if"     => Token::If,
-            "else"   => Token::Else,
+            "fn" => Token::Fn,
+            "let" => Token::Let,
+            "mut" => Token::Mut,
+            "if" => Token::If,
+            "else" => Token::Else,
             "return" => Token::Return,
-            "while"  => Token::While,
-            "for"    => Token::For,
-            "in"     => Token::In,
-            "match"  => Token::Match,
-            "type"   => Token::Type,
-            "move"   => Token::Move,
-            "await"  => Token::Await,
-            "panic"  => Token::Panic,
-            "true"   => Token::Bool(true),
-            "false"  => Token::Bool(false),
-            _        => Token::Ident(s),
+            "while" => Token::While,
+            "for" => Token::For,
+            "in" => Token::In,
+            "match" => Token::Match,
+            "type" => Token::Type,
+            "move" => Token::Move,
+            "await" => Token::Await,
+            "panic" => Token::Panic,
+            "true" => Token::Bool(true),
+            "false" => Token::Bool(false),
+            _ => Token::Ident(s),
         };
         Ok(self.spanned(tok, sc, sl))
     }
@@ -481,69 +520,131 @@ impl Lexer {
         let tok = match c {
             '+' => Token::Plus,
             '-' => match self.peek() {
-                Some('>') => { self.advance(); Token::ThinArrow }
-                _         => Token::Minus,
+                Some('>') => {
+                    self.advance();
+                    Token::ThinArrow
+                }
+                _ => Token::Minus,
             },
             '*' => Token::Star,
             '%' => Token::Percent,
             ',' => Token::Comma,
             ':' => Token::Colon,
 
-            '(' => { self.nesting += 1; Token::LParen }
-            ')' => { if self.nesting > 0 { self.nesting -= 1; } Token::RParen }
-            '[' => { self.nesting += 1; Token::LBracket }
-            ']' => { if self.nesting > 0 { self.nesting -= 1; } Token::RBracket }
-            '{' => { self.nesting += 1; Token::LBrace }
-            '}' => { if self.nesting > 0 { self.nesting -= 1; } Token::RBrace }
+            '(' => {
+                self.nesting += 1;
+                Token::LParen
+            }
+            ')' => {
+                if self.nesting > 0 {
+                    self.nesting -= 1;
+                }
+                Token::RParen
+            }
+            '[' => {
+                self.nesting += 1;
+                Token::LBracket
+            }
+            ']' => {
+                if self.nesting > 0 {
+                    self.nesting -= 1;
+                }
+                Token::RBracket
+            }
+            '{' => {
+                self.nesting += 1;
+                Token::LBrace
+            }
+            '}' => {
+                if self.nesting > 0 {
+                    self.nesting -= 1;
+                }
+                Token::RBrace
+            }
 
             '/' => Token::Slash,
 
             '=' => match self.peek() {
-                Some('=') => { self.advance(); Token::EqEq }
-                Some('>') => { self.advance(); Token::FatArrow }
-                _         => Token::Assign,
+                Some('=') => {
+                    self.advance();
+                    Token::EqEq
+                }
+                Some('>') => {
+                    self.advance();
+                    Token::FatArrow
+                }
+                _ => Token::Assign,
             },
 
             '!' => match self.peek() {
-                Some('=') => { self.advance(); Token::NotEq }
-                _         => Token::Bang,
+                Some('=') => {
+                    self.advance();
+                    Token::NotEq
+                }
+                _ => Token::Bang,
             },
 
             '<' => match self.peek() {
-                Some('=') => { self.advance(); Token::LtEq }
-                _         => Token::Lt,
+                Some('=') => {
+                    self.advance();
+                    Token::LtEq
+                }
+                _ => Token::Lt,
             },
 
             '>' => match self.peek() {
-                Some('=') => { self.advance(); Token::GtEq }
-                _         => Token::Gt,
+                Some('=') => {
+                    self.advance();
+                    Token::GtEq
+                }
+                _ => Token::Gt,
             },
 
             '&' => match self.peek() {
-                Some('&') => { self.advance(); Token::And }
-                _         => Token::Amp,
+                Some('&') => {
+                    self.advance();
+                    Token::And
+                }
+                _ => Token::Amp,
             },
             '|' => match self.peek() {
-                Some('|') => { self.advance(); Token::Or }
-                Some('>') => { self.advance(); Token::Pipe }
-                _         => Token::Pipe1,
+                Some('|') => {
+                    self.advance();
+                    Token::Or
+                }
+                Some('>') => {
+                    self.advance();
+                    Token::Pipe
+                }
+                _ => Token::Pipe1,
             },
 
             '?' => match self.peek() {
-                Some('?') => { self.advance(); Token::NullCoalesce }
-                Some('.') => { self.advance(); Token::SafeDot }
-                _         => Token::Question,
+                Some('?') => {
+                    self.advance();
+                    Token::NullCoalesce
+                }
+                Some('.') => {
+                    self.advance();
+                    Token::SafeDot
+                }
+                _ => Token::Question,
             },
 
             '.' => match self.peek() {
-                Some('.') => { self.advance(); Token::DotDot }
-                _         => Token::Dot,
+                Some('.') => {
+                    self.advance();
+                    Token::DotDot
+                }
+                _ => Token::Dot,
             },
 
-            other => return Err(LexError {
-                msg: format!("unexpected character '{other}'"),
-                span: Span::new(sl, sc, 1),
-            }),
+            other => {
+                return Err(LexError {
+                    msg: format!("unexpected character '{other}'"),
+                    span: Span::new(sl, sc, 1),
+                })
+            }
         };
         Ok(self.spanned(tok, sc, sl))
     }
@@ -582,6 +683,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_floats() {
         assert_eq!(lex("3.14"), vec![Token::Float(3.14)]);
         assert_eq!(lex("0.5"), vec![Token::Float(0.5)]);
@@ -596,50 +698,91 @@ mod tests {
 
     #[test]
     fn test_booleans() {
-        assert_eq!(lex("true false"), vec![Token::Bool(true), Token::Bool(false)]);
+        assert_eq!(
+            lex("true false"),
+            vec![Token::Bool(true), Token::Bool(false)]
+        );
     }
 
     #[test]
     fn test_keywords() {
         let src = "fn let mut if else return while for in match type move await panic";
         let toks = lex(src);
-        assert_eq!(toks, vec![
-            Token::Fn, Token::Let, Token::Mut, Token::If, Token::Else,
-            Token::Return, Token::While, Token::For, Token::In,
-            Token::Match, Token::Type, Token::Move, Token::Await, Token::Panic,
-        ]);
+        assert_eq!(
+            toks,
+            vec![
+                Token::Fn,
+                Token::Let,
+                Token::Mut,
+                Token::If,
+                Token::Else,
+                Token::Return,
+                Token::While,
+                Token::For,
+                Token::In,
+                Token::Match,
+                Token::Type,
+                Token::Move,
+                Token::Await,
+                Token::Panic,
+            ]
+        );
     }
 
     #[test]
     fn test_identifiers() {
-        assert_eq!(lex("foo bar_baz _x y2"), vec![
-            Token::Ident("foo".into()),
-            Token::Ident("bar_baz".into()),
-            Token::Ident("_x".into()),
-            Token::Ident("y2".into()),
-        ]);
+        assert_eq!(
+            lex("foo bar_baz _x y2"),
+            vec![
+                Token::Ident("foo".into()),
+                Token::Ident("bar_baz".into()),
+                Token::Ident("_x".into()),
+                Token::Ident("y2".into()),
+            ]
+        );
     }
 
     #[test]
     fn test_operators() {
-        assert_eq!(lex("+ - * / %"), vec![
-            Token::Plus, Token::Minus, Token::Star, Token::Slash, Token::Percent,
-        ]);
-        assert_eq!(lex("== != < > <= >="), vec![
-            Token::EqEq, Token::NotEq, Token::Lt, Token::Gt, Token::LtEq, Token::GtEq,
-        ]);
+        assert_eq!(
+            lex("+ - * / %"),
+            vec![
+                Token::Plus,
+                Token::Minus,
+                Token::Star,
+                Token::Slash,
+                Token::Percent,
+            ]
+        );
+        assert_eq!(
+            lex("== != < > <= >="),
+            vec![
+                Token::EqEq,
+                Token::NotEq,
+                Token::Lt,
+                Token::Gt,
+                Token::LtEq,
+                Token::GtEq,
+            ]
+        );
         assert_eq!(lex("&& ||"), vec![Token::And, Token::Or]);
-        assert_eq!(lex("=> -> |>"), vec![Token::FatArrow, Token::ThinArrow, Token::Pipe]);
-        assert_eq!(lex("?? ?. ?"), vec![Token::NullCoalesce, Token::SafeDot, Token::Question]);
+        assert_eq!(
+            lex("=> -> |>"),
+            vec![Token::FatArrow, Token::ThinArrow, Token::Pipe]
+        );
+        assert_eq!(
+            lex("?? ?. ?"),
+            vec![Token::NullCoalesce, Token::SafeDot, Token::Question]
+        );
         assert_eq!(lex(".."), vec![Token::DotDot]);
     }
 
     #[test]
     fn test_comments_ignored() {
-        assert_eq!(lex("x # this is a comment\ny"), vec![
-            Token::Ident("x".into()),
-            Token::Ident("y".into()),
-        ]);
+        assert_eq!(
+            lex("x # this is a comment\ny"),
+            vec![Token::Ident("x".into()), Token::Ident("y".into()),]
+        );
     }
 
     #[test]
@@ -654,8 +797,8 @@ mod tests {
     fn test_nested_indent() {
         let src = "a\n    b\n        c\n    d\ne";
         let toks = lex_full(src);
-        let indents  = toks.iter().filter(|t| **t == Token::Indent).count();
-        let dedents  = toks.iter().filter(|t| **t == Token::Dedent).count();
+        let indents = toks.iter().filter(|t| **t == Token::Indent).count();
+        let dedents = toks.iter().filter(|t| **t == Token::Dedent).count();
         assert_eq!(indents, 2, "expected 2 indents");
         assert_eq!(dedents, 2, "expected 2 dedents");
     }
@@ -664,7 +807,10 @@ mod tests {
     fn test_newlines_suppressed_inside_parens() {
         let src = "(\n    x\n    y\n)";
         let toks = lex_full(src);
-        assert!(!toks.contains(&Token::Newline), "newlines should be suppressed inside ()");
+        assert!(
+            !toks.contains(&Token::Newline),
+            "newlines should be suppressed inside ()"
+        );
     }
 
     #[test]
@@ -680,13 +826,16 @@ mod tests {
     fn test_lambda_tokens() {
         let src = "x => x + 1";
         let toks = lex(src);
-        assert_eq!(toks, vec![
-            Token::Ident("x".into()),
-            Token::FatArrow,
-            Token::Ident("x".into()),
-            Token::Plus,
-            Token::Int(1),
-        ]);
+        assert_eq!(
+            toks,
+            vec![
+                Token::Ident("x".into()),
+                Token::FatArrow,
+                Token::Ident("x".into()),
+                Token::Plus,
+                Token::Int(1),
+            ]
+        );
     }
 
     #[test]
@@ -701,11 +850,14 @@ mod tests {
     fn test_type_annotation() {
         let src = "name:str";
         let toks = lex(src);
-        assert_eq!(toks, vec![
-            Token::Ident("name".into()),
-            Token::Colon,
-            Token::Ident("str".into()),
-        ]);
+        assert_eq!(
+            toks,
+            vec![
+                Token::Ident("name".into()),
+                Token::Colon,
+                Token::Ident("str".into()),
+            ]
+        );
     }
 
     #[test]
