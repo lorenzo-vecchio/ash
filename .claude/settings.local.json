@@ -28,7 +28,12 @@
       "Bash(sed -i '' 's/^version = \"\"0.1.7\"\"/version = \"\"0.1.8\"\"/' /Users/lorenzovecchio/Desktop/REPOSITORY/ash/ash-cli/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-codegen/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-hir/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-interp/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-lexer/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-lsp/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-parser/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-stdlib/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-typeck/Cargo.toml)",
       "Bash(sed -i '' 's/\"\"version\"\": \"\"0.1.7\"\"/\"\"version\"\": \"\"0.1.8\"\"/' /Users/lorenzovecchio/Desktop/REPOSITORY/ash/ash-vscode/package.json)",
       "Bash(sed -i '' 's/^version = \"\"0.1.8\"\"/version = \"\"0.1.9\"\"/' /Users/lorenzovecchio/Desktop/REPOSITORY/ash/ash-cli/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-codegen/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-hir/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-interp/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-lexer/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-lsp/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-parser/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-stdlib/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-typeck/Cargo.toml)",
-      "Bash(sed -i '' 's/\"\"version\"\": \"\"0.1.8\"\"/\"\"version\"\": \"\"0.1.9\"\"/' /Users/lorenzovecchio/Desktop/REPOSITORY/ash/ash-vscode/package.json)"
+      "Bash(sed -i '' 's/\"\"version\"\": \"\"0.1.8\"\"/\"\"version\"\": \"\"0.1.9\"\"/' /Users/lorenzovecchio/Desktop/REPOSITORY/ash/ash-vscode/package.json)",
+      "Bash(./target/debug/ash run:*)",
+      "Bash(./target/debug/ash check:*)",
+      "Bash(sed -i '' 's/^version = \"0.1.9\"/version = \"0.2.0\"/' ash-cli/Cargo.toml crates/ash-codegen/Cargo.toml crates/ash-hir/Cargo.toml crates/ash-interp/Cargo.toml crates/ash-lexer/Cargo.toml crates/ash-lsp/Cargo.toml crates/ash-parser/Cargo.toml crates/ash-stdlib/Cargo.toml crates/ash-typeck/Cargo.toml)",
+      "Bash(sed -i '' 's/\"version\": \"0.1.9\"/\"version\": \"0.2.0\"/' ash-vscode/package.json)",
+      "Bash(rm:*)"
     ]
   }
 }
