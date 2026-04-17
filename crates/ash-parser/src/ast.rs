@@ -266,6 +266,9 @@ pub enum StmtKind {
 
     // Type definition
     TypeDef(TypeDef),
+
+    // Module import: use "path/to/file.ash"
+    Use(String),
 }
 
 // ─── Supporting structures ───────────────────────────────────────────────────

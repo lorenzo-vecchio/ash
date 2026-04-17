@@ -1679,6 +1679,8 @@ impl Interpreter {
                 Ok(Value::Unit)
             }
             StmtKind::Expr(expr) => self.eval_expr(expr),
+            // Use statements are resolved by the CLI loader before interpretation
+            StmtKind::Use(_) => Ok(Value::Unit),
         }
     }
 
