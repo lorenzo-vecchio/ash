@@ -76,3 +76,38 @@ char *ash_str_from_bool(long long b) {
 long long ash_str_len(const char *s) {
     return (long long)strlen(s);
 }
+
+/* ─── Map (string-keyed, void* values) ──────────────────────────────────────*/
+
+typedef struct { char *key; void *val; } AshMapEntry;
+typedef struct { AshMapEntry *entries; long long len; long long cap; } AshMap;
+
+AshMap *ash_map_new(void) {
+    AshMap *m = malloc(sizeof(AshMap));
+    m->entries = NULL;
+    m->len = 0;
+    m->cap = 0;
+    return m;
+}
+
+void ash_map_set(AshMap *m, char *key, void *val) {
+    for (long long i = 0; i < m->len; i++) {
+        if (strcmp(m->entries[i].key, key) == 0) { m->entries[i].val = val; return; }
+    }
+    if (m->len == m->cap) {
+        m->cap = m->cap ? m->cap * 2 : 4;
+        m->entries = realloc(m->entries, m->cap * sizeof(AshMapEntry));
+    }
+    m->entries[m->len].key = key;
+    m->entries[m->len].val = val;
+    m->len++;
+}
+
+void *ash_map_get(AshMap *m, char *key) {
+    for (long long i = 0; i < m->len; i++) {
+        if (strcmp(m->entries[i].key, key) == 0) return m->entries[i].val;
+    }
+    return NULL;
+}
+
+long long ash_map_len(AshMap *m) { return m->len; }

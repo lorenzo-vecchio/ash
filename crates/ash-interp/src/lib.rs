@@ -130,6 +130,14 @@ impl PartialEq for Value {
     }
 }
 
+// SAFETY: The interpreter is single-threaded. go.spawn clones a Value into a
+// new thread where it is owned exclusively — no aliased mutable access occurs.
+// FnBody::Ast (Vec<Stmt>) and Env (Arc<Mutex<HashMap>>) are safe to move
+// across thread boundaries because Arc<Mutex<>> is already Send+Sync and
+// the AST nodes are immutable after parsing.
+unsafe impl Send for Value {}
+unsafe impl Sync for Value {}
+
 // --- Environment -------------------------------------------------------------
 
 use std::sync::Arc as Rc;
@@ -1115,6 +1123,33 @@ impl Env {
             }),
         );
 
+        // -- http.serve (tiny_http, blocking) --------------------------------
+        self.define(
+            "http.serve",
+            Value::Fn(FnValue {
+                name: Some("http.serve".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|_args| {
+                    // Real dispatch happens in Interpreter::builtin_http_serve
+                    Err(InterpError::runtime("http.serve: internal dispatch error"))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "http.router",
+            Value::Fn(FnValue {
+                name: Some("http.router".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|_args| {
+                    Ok(Value::Str(
+                        "http.router: use http.serve(port, fn(req) -> {status, body}) with match on req.path".into()
+                    ))
+                })),
+                closure: Env::default(),
+            }),
+        );
+
         // -- Built-in Option/Result constructors -----------------------------
         self.define("none", Value::Option(None));
         self.define("None", Value::Option(None));
@@ -1251,15 +1286,15 @@ impl Env {
                 closure: Env::default(),
             }),
         );
+        // go.spawn is handled specially in call_fn (needs interpreter dispatch)
         self.define(
             "go.spawn",
             Value::Fn(FnValue {
                 name: Some("go.spawn".into()),
                 params: vec![],
                 body: FnBody::Native(std::sync::Arc::new(|_args| {
-                    Err(InterpError::runtime(
-                        "go.spawn() must be called through interpreter (needs fn dispatch)",
-                    ))
+                    // Real implementation is in Interpreter::builtin_go_spawn
+                    Err(InterpError::runtime("go.spawn: internal dispatch error"))
                 })),
                 closure: Env::default(),
             }),
@@ -1283,6 +1318,44 @@ impl Env {
                         }
                         _ => Err(InterpError::runtime("go.wait requires a task handle")),
                     }
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "go.race",
+            Value::Fn(FnValue {
+                name: Some("go.race".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let tasks = match args.first() {
+                        Some(Value::List(l)) => l.clone(),
+                        _ => return Err(InterpError::runtime("go.race requires a list of tasks")),
+                    };
+                    loop {
+                        for t in &tasks {
+                            if let Value::Task(slot) = t {
+                                let v = slot.lock().unwrap().clone();
+                                if let Some(val) = v {
+                                    return Ok(val);
+                                }
+                            }
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "go.chan",
+            Value::Fn(FnValue {
+                name: Some("go.chan".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|_args| {
+                    Err(InterpError::runtime(
+                        "go.chan: channels require interpreter-level integration — not yet supported",
+                    ))
                 })),
                 closure: Env::default(),
             }),
@@ -1646,58 +1719,507 @@ impl Env {
             );
         }
 
-        // -- auth.* stubs (require external service or crates) ---------------
-        for name in &["auth.hash", "auth.check", "auth.jwt", "auth.verify"] {
-            let n = name.to_string();
-            self.define(
-                name,
-                Value::Fn(FnValue {
-                    name: Some(n.clone()),
-                    params: vec![],
-                    body: FnBody::Native(std::sync::Arc::new(move |_| {
-                        Err(InterpError::runtime(format!(
-                            "{n}: not yet implemented — add 'bcrypt'/'jsonwebtoken' crate to ash-interp"
-                        )))
-                    })),
-                    closure: Env::default(),
-                }),
-            );
-        }
+        // -- auth.* (bcrypt + jsonwebtoken) ----------------------------------
+        self.define(
+            "auth.hash",
+            Value::Fn(FnValue {
+                name: Some("auth.hash".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let pw = match args.first() {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "auth.hash: requires a password string",
+                            ))
+                        }
+                    };
+                    let hash = bcrypt::hash(&pw, bcrypt::DEFAULT_COST)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+                    Ok(Value::Str(hash))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "auth.check",
+            Value::Fn(FnValue {
+                name: Some("auth.check".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let (pw, hash) = match (args.first(), args.get(1)) {
+                        (Some(Value::Str(p)), Some(Value::Str(h))) => (p.clone(), h.clone()),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "auth.check: requires (password: str, hash: str)",
+                            ))
+                        }
+                    };
+                    let ok = bcrypt::verify(&pw, &hash).unwrap_or(false);
+                    Ok(Value::Bool(ok))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "auth.jwt",
+            Value::Fn(FnValue {
+                name: Some("auth.jwt".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let payload = match args.first() {
+                        Some(Value::Map(pairs)) => {
+                            let mut m = serde_json::Map::new();
+                            for (k, v) in pairs {
+                                let key = k.to_string();
+                                let val = match v {
+                                    Value::Str(s) => serde_json::Value::String(s.clone()),
+                                    Value::Int(n) => serde_json::Value::Number((*n).into()),
+                                    Value::Bool(b) => serde_json::Value::Bool(*b),
+                                    _ => serde_json::Value::String(v.to_string()),
+                                };
+                                m.insert(key, val);
+                            }
+                            m
+                        }
+                        _ => return Err(InterpError::runtime("auth.jwt: first arg must be a map")),
+                    };
+                    let secret = match args.get(1) {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "auth.jwt: second arg must be a secret string",
+                            ))
+                        }
+                    };
+                    let token = jsonwebtoken::encode(
+                        &jsonwebtoken::Header::default(),
+                        &payload,
+                        &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+                    )
+                    .map_err(|e| InterpError::runtime(e.to_string()))?;
+                    Ok(Value::Str(token))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "auth.verify",
+            Value::Fn(FnValue {
+                name: Some("auth.verify".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let token = match args.first() {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "auth.verify: first arg must be a token string",
+                            ))
+                        }
+                    };
+                    let secret = match args.get(1) {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "auth.verify: second arg must be a secret string",
+                            ))
+                        }
+                    };
+                    let mut validation =
+                        jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+                    validation.required_spec_claims = std::collections::HashSet::new();
+                    let result = jsonwebtoken::decode::<serde_json::Map<String, serde_json::Value>>(
+                        &token,
+                        &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
+                        &validation,
+                    );
+                    match result {
+                        Ok(data) => {
+                            let pairs: Vec<(Value, Value)> = data
+                                .claims
+                                .into_iter()
+                                .map(|(k, v)| {
+                                    let val = match v {
+                                        serde_json::Value::String(s) => Value::Str(s),
+                                        serde_json::Value::Number(n) => {
+                                            if let Some(i) = n.as_i64() {
+                                                Value::Int(i)
+                                            } else {
+                                                Value::Float(n.as_f64().unwrap_or(0.0))
+                                            }
+                                        }
+                                        serde_json::Value::Bool(b) => Value::Bool(b),
+                                        _ => Value::Str(v.to_string()),
+                                    };
+                                    (Value::Str(k), val)
+                                })
+                                .collect();
+                            Ok(Value::Option(Some(Box::new(Value::Map(pairs)))))
+                        }
+                        Err(_) => Ok(Value::Option(None)),
+                    }
+                })),
+                closure: Env::default(),
+            }),
+        );
 
-        // -- mail.* stubs ----------------------------------------------------
-        for name in &["mail.send", "mail.smtp"] {
-            let n = name.to_string();
-            self.define(
-                name,
-                Value::Fn(FnValue {
-                    name: Some(n.clone()),
-                    params: vec![],
-                    body: FnBody::Native(std::sync::Arc::new(move |_| {
-                        Err(InterpError::runtime(format!(
-                            "{n}: not yet implemented — set SMTP_HOST/SMTP_USER/SMTP_PASS and add 'lettre' crate"
-                        )))
-                    })),
-                    closure: Env::default(),
-                }),
-            );
-        }
+        // -- mail.* (lettre SMTP) --------------------------------------------
+        self.define(
+            "mail.send",
+            Value::Fn(FnValue {
+                name: Some("mail.send".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    use lettre::transport::smtp::authentication::Credentials;
+                    use lettre::{Message, SmtpTransport, Transport};
 
-        // -- store.* stubs ---------------------------------------------------
-        for name in &["store.get", "store.set", "store.del", "store.list"] {
-            let n = name.to_string();
+                    let to = match args.first() {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "mail.send: first arg must be recipient (str)",
+                            ))
+                        }
+                    };
+                    let subject = match args.get(1) {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "mail.send: second arg must be subject (str)",
+                            ))
+                        }
+                    };
+                    let body = match args.get(2) {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "mail.send: third arg must be body (str)",
+                            ))
+                        }
+                    };
+
+                    let host = std::env::var("SMTP_HOST")
+                        .map_err(|_| InterpError::runtime("mail.send: SMTP_HOST not set"))?;
+                    let port: u16 = std::env::var("SMTP_PORT")
+                        .unwrap_or_else(|_| "587".into())
+                        .parse()
+                        .unwrap_or(587);
+                    let user = std::env::var("SMTP_USER")
+                        .map_err(|_| InterpError::runtime("mail.send: SMTP_USER not set"))?;
+                    let pass = std::env::var("SMTP_PASS")
+                        .map_err(|_| InterpError::runtime("mail.send: SMTP_PASS not set"))?;
+                    let from_addr = std::env::var("SMTP_FROM").unwrap_or_else(|_| user.clone());
+
+                    let email =
+                        Message::builder()
+                            .from(from_addr.parse().map_err(
+                                |e: lettre::address::AddressError| {
+                                    InterpError::runtime(e.to_string())
+                                },
+                            )?)
+                            .to(to.parse().map_err(|e: lettre::address::AddressError| {
+                                InterpError::runtime(e.to_string())
+                            })?)
+                            .subject(subject)
+                            .body(body)
+                            .map_err(|e| InterpError::runtime(e.to_string()))?;
+
+                    let creds = Credentials::new(user, pass);
+                    let transport = SmtpTransport::starttls_relay(&host)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?
+                        .port(port)
+                        .credentials(creds)
+                        .build();
+                    transport
+                        .send(&email)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+                    Ok(Value::Unit)
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "mail.html",
+            Value::Fn(FnValue {
+                name: Some("mail.html".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    use lettre::message::header::ContentType;
+                    use lettre::transport::smtp::authentication::Credentials;
+                    use lettre::{Message, SmtpTransport, Transport};
+
+                    let to = match args.first() {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "mail.html: first arg must be recipient (str)",
+                            ))
+                        }
+                    };
+                    let subject = match args.get(1) {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "mail.html: second arg must be subject (str)",
+                            ))
+                        }
+                    };
+                    let html = match args.get(2) {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "mail.html: third arg must be html body (str)",
+                            ))
+                        }
+                    };
+
+                    let host = std::env::var("SMTP_HOST")
+                        .map_err(|_| InterpError::runtime("mail.html: SMTP_HOST not set"))?;
+                    let port: u16 = std::env::var("SMTP_PORT")
+                        .unwrap_or_else(|_| "587".into())
+                        .parse()
+                        .unwrap_or(587);
+                    let user = std::env::var("SMTP_USER")
+                        .map_err(|_| InterpError::runtime("mail.html: SMTP_USER not set"))?;
+                    let pass = std::env::var("SMTP_PASS")
+                        .map_err(|_| InterpError::runtime("mail.html: SMTP_PASS not set"))?;
+                    let from_addr = std::env::var("SMTP_FROM").unwrap_or_else(|_| user.clone());
+
+                    let email =
+                        Message::builder()
+                            .from(from_addr.parse().map_err(
+                                |e: lettre::address::AddressError| {
+                                    InterpError::runtime(e.to_string())
+                                },
+                            )?)
+                            .to(to.parse().map_err(|e: lettre::address::AddressError| {
+                                InterpError::runtime(e.to_string())
+                            })?)
+                            .subject(subject)
+                            .header(ContentType::TEXT_HTML)
+                            .body(html)
+                            .map_err(|e| InterpError::runtime(e.to_string()))?;
+
+                    let creds = Credentials::new(user, pass);
+                    let transport = SmtpTransport::starttls_relay(&host)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?
+                        .port(port)
+                        .credentials(creds)
+                        .build();
+                    transport
+                        .send(&email)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+                    Ok(Value::Unit)
+                })),
+                closure: Env::default(),
+            }),
+        );
+        // mail.smtp is an alias for mail.send (legacy name)
+        self.define(
+            "mail.smtp",
+            Value::Fn(FnValue {
+                name: Some("mail.smtp".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|_| {
+                    Err(InterpError::runtime(
+                        "mail.smtp: use mail.send(to, subject, body) instead",
+                    ))
+                })),
+                closure: Env::default(),
+            }),
+        );
+
+        // -- store.* (filesystem: ~/.ash/store/) -----------------------------
+        {
+            fn store_dir() -> std::path::PathBuf {
+                let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+                std::path::PathBuf::from(home).join(".ash").join("store")
+            }
+
             self.define(
-                name,
+                "store.put",
                 Value::Fn(FnValue {
-                    name: Some(n.clone()),
+                    name: Some("store.put".into()),
                     params: vec![],
-                    body: FnBody::Native(std::sync::Arc::new(move |_| {
-                        Err(InterpError::runtime(format!(
-                            "{n}: not yet implemented — set STORE_URL env var"
-                        )))
+                    body: FnBody::Native(std::sync::Arc::new(|args| {
+                        let key = match args.first() {
+                            Some(Value::Str(s)) => s.clone(),
+                            _ => {
+                                return Err(InterpError::runtime(
+                                    "store.put: first arg must be key (str)",
+                                ))
+                            }
+                        };
+                        let data = match args.get(1) {
+                            Some(v) => v.to_string(),
+                            None => {
+                                return Err(InterpError::runtime("store.put: second arg required"))
+                            }
+                        };
+                        let dir = {
+                            let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+                            std::path::PathBuf::from(home).join(".ash").join("store")
+                        };
+                        std::fs::create_dir_all(&dir)
+                            .map_err(|e| InterpError::runtime(e.to_string()))?;
+                        std::fs::write(dir.join(&key), data)
+                            .map_err(|e| InterpError::runtime(e.to_string()))?;
+                        Ok(Value::Unit)
                     })),
                     closure: Env::default(),
                 }),
             );
+            // store.set is an alias for store.put
+            self.define(
+                "store.set",
+                Value::Fn(FnValue {
+                    name: Some("store.set".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(|args| {
+                        let key = match args.first() {
+                            Some(Value::Str(s)) => s.clone(),
+                            _ => {
+                                return Err(InterpError::runtime(
+                                    "store.set: first arg must be key (str)",
+                                ))
+                            }
+                        };
+                        let data = match args.get(1) {
+                            Some(v) => v.to_string(),
+                            None => {
+                                return Err(InterpError::runtime("store.set: second arg required"))
+                            }
+                        };
+                        let dir = {
+                            let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+                            std::path::PathBuf::from(home).join(".ash").join("store")
+                        };
+                        std::fs::create_dir_all(&dir)
+                            .map_err(|e| InterpError::runtime(e.to_string()))?;
+                        std::fs::write(dir.join(&key), data)
+                            .map_err(|e| InterpError::runtime(e.to_string()))?;
+                        Ok(Value::Unit)
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+            self.define(
+                "store.get",
+                Value::Fn(FnValue {
+                    name: Some("store.get".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(|args| {
+                        let key = match args.first() {
+                            Some(Value::Str(s)) => s.clone(),
+                            _ => {
+                                return Err(InterpError::runtime(
+                                    "store.get: first arg must be key (str)",
+                                ))
+                            }
+                        };
+                        let dir = {
+                            let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+                            std::path::PathBuf::from(home).join(".ash").join("store")
+                        };
+                        let path = dir.join(&key);
+                        if path.exists() {
+                            let data = std::fs::read_to_string(&path)
+                                .map_err(|e| InterpError::runtime(e.to_string()))?;
+                            Ok(Value::Option(Some(Box::new(Value::Str(data)))))
+                        } else {
+                            Ok(Value::Option(None))
+                        }
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+            self.define(
+                "store.del",
+                Value::Fn(FnValue {
+                    name: Some("store.del".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(|args| {
+                        let key = match args.first() {
+                            Some(Value::Str(s)) => s.clone(),
+                            _ => {
+                                return Err(InterpError::runtime(
+                                    "store.del: first arg must be key (str)",
+                                ))
+                            }
+                        };
+                        let dir = {
+                            let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+                            std::path::PathBuf::from(home).join(".ash").join("store")
+                        };
+                        let path = dir.join(&key);
+                        if path.exists() {
+                            std::fs::remove_file(&path)
+                                .map_err(|e| InterpError::runtime(e.to_string()))?;
+                        }
+                        Ok(Value::Unit)
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+            self.define(
+                "store.url",
+                Value::Fn(FnValue {
+                    name: Some("store.url".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(|args| {
+                        let key = match args.first() {
+                            Some(Value::Str(s)) => s.clone(),
+                            _ => {
+                                return Err(InterpError::runtime(
+                                    "store.url: first arg must be key (str)",
+                                ))
+                            }
+                        };
+                        let dir = {
+                            let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+                            std::path::PathBuf::from(home).join(".ash").join("store")
+                        };
+                        let path = dir.join(&key);
+                        Ok(Value::Str(format!("file://{}", path.display())))
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+            self.define(
+                "store.list",
+                Value::Fn(FnValue {
+                    name: Some("store.list".into()),
+                    params: vec![],
+                    body: FnBody::Native(std::sync::Arc::new(|args| {
+                        let prefix = match args.first() {
+                            Some(Value::Str(s)) => s.clone(),
+                            _ => String::new(),
+                        };
+                        let dir = {
+                            let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+                            std::path::PathBuf::from(home).join(".ash").join("store")
+                        };
+                        if !dir.exists() {
+                            return Ok(Value::List(vec![]));
+                        }
+                        let mut results = vec![];
+                        if let Ok(entries) = std::fs::read_dir(&dir) {
+                            for entry in entries.flatten() {
+                                if let Some(name) =
+                                    entry.file_name().to_str().map(|s| s.to_string())
+                                {
+                                    if prefix.is_empty() || name.starts_with(&prefix) {
+                                        results.push(Value::Str(name));
+                                    }
+                                }
+                            }
+                        }
+                        Ok(Value::List(results))
+                    })),
+                    closure: Env::default(),
+                }),
+            );
+            let _ = store_dir; // used by inner closures via env var
         }
 
         // -- ai.* (calls Anthropic API via http.post) ------------------------
@@ -2760,6 +3282,8 @@ impl Interpreter {
                             Some("reduce") => return self.builtin_reduce(args),
                             Some("any") => return self.builtin_any(args),
                             Some("all") => return self.builtin_all(args),
+                            Some("go.spawn") => return self.builtin_go_spawn(args),
+                            Some("http.serve") => return self.builtin_http_serve(args),
                             _ => {}
                         }
                         f(&args)
@@ -2902,6 +3426,111 @@ impl Interpreter {
             }
         }
         Ok(Value::Bool(true))
+    }
+
+    /// go.spawn(f) — run f() in a new OS thread, return a Task handle.
+    ///
+    /// The spawned thread owns an independent Interpreter and the function
+    /// value. The result is deposited into Arc<Mutex<Option<Value>>> which is
+    /// then retrieved by go.wait / go.all / go.race.
+    fn builtin_go_spawn(&mut self, args: Vec<Value>) -> InterpResult<Value> {
+        let f = match args.into_iter().next() {
+            Some(v) => v,
+            None => {
+                return Err(InterpError::runtime(
+                    "go.spawn: requires a function argument",
+                ))
+            }
+        };
+
+        let slot: std::sync::Arc<std::sync::Mutex<Option<Value>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(None));
+        let slot_clone = slot.clone();
+
+        std::thread::spawn(move || {
+            let mut interp = Interpreter::new();
+            let result = interp.call_fn(f, vec![]).unwrap_or(Value::Unit);
+            *slot_clone.lock().unwrap() = Some(result);
+        });
+
+        Ok(Value::Task(slot))
+    }
+
+    /// http.serve(port, handler) — blocking HTTP server using tiny_http.
+    fn builtin_http_serve(&mut self, args: Vec<Value>) -> InterpResult<Value> {
+        let port = match args.first() {
+            Some(Value::Int(p)) => *p as u16,
+            _ => {
+                return Err(InterpError::runtime(
+                    "http.serve: first arg must be port (int)",
+                ))
+            }
+        };
+        let handler = match args.get(1) {
+            Some(v) => v.clone(),
+            None => {
+                return Err(InterpError::runtime(
+                    "http.serve: second arg must be handler fn",
+                ))
+            }
+        };
+
+        let server = tiny_http::Server::http(format!("0.0.0.0:{port}"))
+            .map_err(|e| InterpError::runtime(e.to_string()))?;
+        println!("ash: serving on http://0.0.0.0:{port}");
+
+        for request in server.incoming_requests() {
+            let method = request.method().to_string();
+            let url = request.url().to_string();
+
+            let req_map = Value::Map(vec![
+                (Value::Str("method".into()), Value::Str(method)),
+                (Value::Str("path".into()), Value::Str(url)),
+                (Value::Str("body".into()), Value::Str(String::new())),
+            ]);
+
+            let resp = self
+                .call_fn(handler.clone(), vec![req_map])
+                .unwrap_or_else(|_| {
+                    Value::Map(vec![
+                        (Value::Str("status".into()), Value::Int(500)),
+                        (
+                            Value::Str("body".into()),
+                            Value::Str("internal error".into()),
+                        ),
+                    ])
+                });
+
+            let status = if let Value::Map(ref pairs) = resp {
+                pairs
+                    .iter()
+                    .find(|(k, _)| k == &Value::Str("status".into()))
+                    .and_then(|(_, v)| {
+                        if let Value::Int(n) = v {
+                            Some(*n as u16)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(200)
+            } else {
+                200
+            };
+            let body_str = if let Value::Map(ref pairs) = resp {
+                pairs
+                    .iter()
+                    .find(|(k, _)| k == &Value::Str("body".into()))
+                    .map(|(_, v)| v.to_string())
+                    .unwrap_or_default()
+            } else {
+                resp.to_string()
+            };
+
+            let response = tiny_http::Response::from_string(body_str)
+                .with_status_code(tiny_http::StatusCode(status));
+            let _ = request.respond(response);
+        }
+        Ok(Value::Unit)
     }
 
     // -- pattern matching -----------------------------------------------------

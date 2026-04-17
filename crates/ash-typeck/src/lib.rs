@@ -1492,6 +1492,30 @@ pub fn check(program: &Program) -> TResult<HirProgram> {
     TypeChecker::new().check(program)
 }
 
+/// A structured type error diagnostic with location information.
+pub struct Diagnostic {
+    pub msg: String,
+    pub line: usize,
+    pub col: usize,
+}
+
+/// Run the type checker and return all diagnostics.
+/// For now a single error is returned if type checking fails;
+/// line/col come from the span if available.
+pub fn check_with_diagnostics(program: &Program) -> Vec<Diagnostic> {
+    match TypeChecker::new().check(program) {
+        Ok(_) => vec![],
+        Err(e) => {
+            let (line, col) = e.span.map(|s| (s.line, s.col)).unwrap_or((0, 0));
+            vec![Diagnostic {
+                msg: e.msg,
+                line,
+                col,
+            }]
+        }
+    }
+}
+
 // --- Helpers -----------------------------------------------------------------
 
 #[allow(dead_code)]

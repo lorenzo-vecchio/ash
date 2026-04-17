@@ -10,7 +10,10 @@
 //!   ash lsp                         Start the LSP server (stdio)
 //!   ash repl                        Start interactive REPL
 //!   ash version                     Print version info
+//!   ash add   <url-or-path>         Add a package dependency
+//!   ash install                     Install all dependencies from ash.toml
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -33,6 +36,8 @@ fn main() {
         "test" => cmd_test(&args[2..]),
         "lsp" => cmd_lsp(),
         "repl" => cmd_repl(),
+        "add" => cmd_add(&args[2..]),
+        "install" => cmd_install(),
         "version" | "--version" | "-V" => cmd_version(),
         "help" | "--help" | "-h" => print_usage(),
         other => {
@@ -75,9 +80,26 @@ fn cmd_version() {
 // ─── run ─────────────────────────────────────────────────────────────────────
 
 fn cmd_run(args: &[String]) {
+    let strict = args.contains(&"--strict".to_string());
     let path = require_file(args, "run");
     let source = read_source(&path);
     let program = frontend(&source, &path);
+
+    // --strict: run the typechecker before interpreting
+    if strict {
+        let diags = ash_typeck::check_with_diagnostics(&program);
+        if !diags.is_empty() {
+            for d in &diags {
+                if d.line > 0 {
+                    eprintln!("{}:{}:{}: error: {}", path.display(), d.line, d.col, d.msg);
+                } else {
+                    eprintln!("{}: error: {}", path.display(), d.msg);
+                }
+            }
+            process::exit(1);
+        }
+    }
+
     match ash_interp::run(&program) {
         Ok(_) => {}
         Err(e) => {
@@ -130,22 +152,32 @@ fn cmd_build(args: &[String]) {
 /// The C runtime is embedded directly in the binary so it is always available
 /// regardless of where `ash` is installed.
 const ASH_RUNTIME_C: &str = include_str!("../../ash_runtime.c");
+const ASH_STDLIB_C: &str = include_str!("../../ash_stdlib.c");
 
-/// Write the embedded runtime to a temp file and return its path.
-fn write_runtime_c() -> Option<PathBuf> {
-    let path = std::env::temp_dir().join("ash_runtime.c");
-    std::fs::write(&path, ASH_RUNTIME_C).ok()?;
-    Some(path)
+/// Write the embedded runtimes to temp files and return their paths.
+fn write_runtime_c() -> (Option<PathBuf>, Option<PathBuf>) {
+    let runtime_path = std::env::temp_dir().join("ash_runtime.c");
+    let stdlib_path = std::env::temp_dir().join("ash_stdlib.c");
+    let r = std::fs::write(&runtime_path, ASH_RUNTIME_C)
+        .ok()
+        .map(|_| runtime_path);
+    let s = std::fs::write(&stdlib_path, ASH_STDLIB_C)
+        .ok()
+        .map(|_| stdlib_path);
+    (r, s)
 }
 
 fn try_compile_with_clang(ll: &Path, out: &Path) -> Result<(), String> {
-    let runtime = write_runtime_c();
+    let (runtime, stdlib) = write_runtime_c();
     // Try clang-20 first (avoids FastISel bugs in clang-18 with certain phi patterns)
     for clang in &["clang-20", "clang-18", "clang"] {
         let mut cmd = process::Command::new(clang);
         cmd.arg("-O1").arg(ll).arg("-o").arg(out).arg("-lm");
         if let Some(ref rt) = runtime {
             cmd.arg(rt);
+        }
+        if let Some(ref sl) = stdlib {
+            cmd.arg(sl);
         }
         let result = cmd.status();
         match result {
@@ -180,28 +212,84 @@ fn try_compile_with_llc(ll: &Path, out: &Path) -> Result<(), String> {
 
 // ─── check ───────────────────────────────────────────────────────────────────
 
-fn cmd_check(args: &[String]) {
-    let path = require_file(args, "check");
-    let source = read_source(&path);
-    let program = frontend(&source, &path);
-
-    // Also run the type checker
-    match ash_typeck::check(&program) {
-        Ok(hir) => {
-            let fn_count = hir.fns.len();
-            let type_count = hir.types.len();
-            let stmt_count = hir.top_stmts.len();
-            println!(
-                "ash: {} — OK ({fn_count} fn{}, {type_count} type{}, {stmt_count} stmt{})",
-                path.display(),
-                if fn_count == 1 { "" } else { "s" },
-                if type_count == 1 { "" } else { "s" },
-                if stmt_count == 1 { "" } else { "s" },
-            );
+fn run_check(path: &Path) -> bool {
+    let source = read_source(path);
+    let program = frontend(&source, path);
+    let diags = ash_typeck::check_with_diagnostics(&program);
+    if diags.is_empty() {
+        // Also show the HIR summary on success
+        match ash_typeck::check(&program) {
+            Ok(hir) => {
+                let fn_count = hir.fns.len();
+                let type_count = hir.types.len();
+                let stmt_count = hir.top_stmts.len();
+                println!(
+                    "ash: {} — OK ({fn_count} fn{}, {type_count} type{}, {stmt_count} stmt{})",
+                    path.display(),
+                    if fn_count == 1 { "" } else { "s" },
+                    if type_count == 1 { "" } else { "s" },
+                    if stmt_count == 1 { "" } else { "s" },
+                );
+            }
+            Err(e) => {
+                eprintln!("{}: error: {e}", path.display());
+                return false;
+            }
         }
-        Err(e) => {
-            eprintln!("{}:{e}", path.display());
+        true
+    } else {
+        for d in &diags {
+            if d.line > 0 {
+                eprintln!("{}:{}:{}: error: {}", path.display(), d.line, d.col, d.msg);
+            } else {
+                eprintln!("{}: error: {}", path.display(), d.msg);
+            }
+        }
+        false
+    }
+}
+
+fn cmd_check(args: &[String]) {
+    let watch = args.contains(&"--watch".to_string());
+    let path = require_file(args, "check");
+
+    if !run_check(&path) && !watch {
+        process::exit(1);
+    }
+
+    if watch {
+        use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (tx, rx) = mpsc::channel();
+        let mut watcher: RecommendedWatcher = Watcher::new(
+            tx,
+            notify::Config::default().with_poll_interval(Duration::from_millis(500)),
+        )
+        .unwrap_or_else(|e| {
+            eprintln!("ash: cannot create file watcher: {e}");
             process::exit(1);
+        });
+        watcher
+            .watch(&path, RecursiveMode::NonRecursive)
+            .unwrap_or_else(|e| {
+                eprintln!("ash: cannot watch {}: {e}", path.display());
+                process::exit(1);
+            });
+        println!(
+            "ash: watching {} for changes (Ctrl-C to stop)…",
+            path.display()
+        );
+        loop {
+            match rx.recv() {
+                Ok(Ok(_event)) => {
+                    println!("ash: file changed, re-checking…");
+                    run_check(&path);
+                }
+                Ok(Err(e)) => eprintln!("ash: watch error: {e}"),
+                Err(_) => break,
+            }
         }
     }
 }
@@ -596,4 +684,155 @@ fn require_file(args: &[String], cmd: &str) -> PathBuf {
 fn parse_output_flag(args: &[String]) -> Option<PathBuf> {
     let idx = args.iter().position(|a| a == "-o")?;
     args.get(idx + 1).map(PathBuf::from)
+}
+
+// ─── ash.toml manifest types ──────────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default)]
+struct AshManifest {
+    package: PackageInfo,
+    #[serde(default)]
+    dependencies: HashMap<String, DepSpec>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default)]
+struct PackageInfo {
+    name: String,
+    version: String,
+    #[serde(default)]
+    entry: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[serde(untagged)]
+enum DepSpec {
+    Git {
+        git: String,
+        #[serde(default)]
+        tag: String,
+    },
+    Path {
+        path: String,
+    },
+    Version(String),
+}
+
+fn read_manifest() -> AshManifest {
+    match std::fs::read_to_string("ash.toml") {
+        Ok(s) => toml::from_str(&s).unwrap_or_default(),
+        Err(_) => AshManifest::default(),
+    }
+}
+
+fn write_manifest(manifest: &AshManifest) {
+    match toml::to_string_pretty(manifest) {
+        Ok(s) => {
+            if let Err(e) = std::fs::write("ash.toml", s) {
+                eprintln!("ash: failed to write ash.toml: {e}");
+            }
+        }
+        Err(e) => eprintln!("ash: failed to serialize ash.toml: {e}"),
+    }
+}
+
+// ─── add ──────────────────────────────────────────────────────────────────────
+
+fn cmd_add(args: &[String]) {
+    let url = match args.first() {
+        Some(s) => s.clone(),
+        None => {
+            eprintln!("ash: 'add' requires a URL or path argument");
+            process::exit(1);
+        }
+    };
+
+    let mut manifest = read_manifest();
+
+    // Derive package name from URL
+    let name = url
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .rsplit('/')
+        .next()
+        .unwrap_or("package")
+        .to_string();
+
+    if url.starts_with("http://") || url.starts_with("https://") || url.contains(".git") {
+        // Git dependency — clone into .ash/packages/<name>/
+        let dest = format!(".ash/packages/{name}");
+        if !std::path::Path::new(&dest).exists() {
+            println!("ash: cloning {url} → {dest}");
+            let status = process::Command::new("git")
+                .args(["clone", &url, &dest])
+                .status();
+            match status {
+                Ok(s) if s.success() => println!("ash: cloned {name}"),
+                Ok(_) => {
+                    eprintln!("ash: git clone failed for {url}");
+                    process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("ash: git not found or clone failed: {e}");
+                    process::exit(1);
+                }
+            }
+        } else {
+            println!("ash: {name} already exists at {dest}");
+        }
+        manifest.dependencies.insert(
+            name,
+            DepSpec::Git {
+                git: url,
+                tag: String::new(),
+            },
+        );
+    } else {
+        // Path dependency
+        manifest
+            .dependencies
+            .insert(name.clone(), DepSpec::Path { path: url.clone() });
+        println!("ash: added path dependency '{name}' → {url}");
+    }
+
+    write_manifest(&manifest);
+    println!("ash: updated ash.toml");
+}
+
+// ─── install ──────────────────────────────────────────────────────────────────
+
+fn cmd_install() {
+    let manifest = read_manifest();
+
+    if manifest.dependencies.is_empty() {
+        println!("ash: no dependencies in ash.toml");
+        return;
+    }
+
+    for (name, spec) in &manifest.dependencies {
+        match spec {
+            DepSpec::Git { git, .. } => {
+                let dest = format!(".ash/packages/{name}");
+                if std::path::Path::new(&dest).exists() {
+                    println!("ash: {name} already installed at {dest}");
+                } else {
+                    println!("ash: installing {name} from {git}");
+                    let status = process::Command::new("git")
+                        .args(["clone", git, &dest])
+                        .status();
+                    match status {
+                        Ok(s) if s.success() => println!("ash: installed {name}"),
+                        _ => eprintln!("ash: failed to clone {name} from {git}"),
+                    }
+                }
+            }
+            DepSpec::Path { path } => {
+                println!("ash: {name} uses local path {path} — no installation needed");
+            }
+            DepSpec::Version(v) => {
+                println!(
+                    "ash: {name}@{v} — version-pinned packages not yet supported (use git URL)"
+                );
+            }
+        }
+    }
 }

@@ -184,6 +184,17 @@ impl Codegen {
         self.emit("declare i8* @ash_str_from_int(i64)");
         self.emit("declare i8* @ash_str_from_float(double)");
         self.emit("declare i8* @ash_str_from_bool(i64)");
+        self.emit("declare i64 @ash_str_len(i8*)");
+        // ash_runtime.c — map helpers
+        self.emit("declare i8* @ash_map_new()");
+        self.emit("declare void @ash_map_set(i8*, i8*, i8*)");
+        self.emit("declare i8* @ash_map_get(i8*, i8*)");
+        self.emit("declare i64 @ash_map_len(i8*)");
+        // ash_stdlib.c — file/env helpers
+        self.emit("declare i8* @ash_file_read(i8*)");
+        self.emit("declare void @ash_file_write(i8*, i8*)");
+        self.emit("declare i64 @ash_file_exists(i8*)");
+        self.emit("declare i8* @ash_env_get(i8*)");
         self.emit("");
 
         // Pre-register all function signatures so call sites know return types
@@ -501,10 +512,13 @@ impl Codegen {
             HirExprKind::Call { callee, args } => {
                 // Handle field calls (method calls)
                 if let HirExprKind::Field { obj, field } = &callee.kind {
-                    // Try namespace call: math.sqrt etc
+                    // Try namespace call: math.sqrt, file.read, env.get, etc.
                     if let HirExprKind::Var(ns) = &obj.kind {
-                        if ns.as_str() == "math" {
-                            return self.emit_math_call(field, args);
+                        match ns.as_str() {
+                            "math" => return self.emit_math_call(field, args),
+                            "file" => return self.emit_file_call(field, args),
+                            "env" => return self.emit_env_call(field, args),
+                            _ => {}
                         }
                     }
                     // Method call on value
@@ -595,8 +609,23 @@ impl Codegen {
                 Ok((out, LLVMType::I64))
             }
 
-            HirExprKind::Map(_) | HirExprKind::Tuple(_) => Err(CodegenError::new(
-                "map/tuple literals not yet supported in compiled mode — use ash run",
+            HirExprKind::Map(pairs) => {
+                let map_reg = self.r();
+                self.i(format!("{map_reg} = call i8* @ash_map_new()"));
+                for (key_expr, val_expr) in pairs {
+                    let (key_reg, key_ty) = self.emit_expr(key_expr)?;
+                    let key_str = self.value_to_str(&key_reg, &key_ty);
+                    let (val_reg, val_ty) = self.emit_expr(val_expr)?;
+                    // Store values as i8* — convert numeric types via runtime helpers
+                    let val_str = self.value_to_str(&val_reg, &val_ty);
+                    self.i(format!(
+                        "call void @ash_map_set(i8* {map_reg}, i8* {key_str}, i8* {val_str})"
+                    ));
+                }
+                Ok((map_reg, LLVMType::Ptr))
+            }
+            HirExprKind::Tuple(_) => Err(CodegenError::new(
+                "tuple literals not yet supported in compiled mode — use ash run",
             )),
         }
     }
@@ -1140,6 +1169,65 @@ impl Codegen {
                 Ok((out, LLVMType::Double))
             }
             _ => Err(CodegenError::new(format!("math.{func} not in codegen"))),
+        }
+    }
+
+    // ── file namespace ────────────────────────────────────────────────────────
+
+    fn emit_file_call(&mut self, func: &str, args: &[HirExpr]) -> CResult<(String, LLVMType)> {
+        match func {
+            "read" => {
+                if args.is_empty() {
+                    return Err(CodegenError::new("file.read requires a path argument"));
+                }
+                let (pr, pt) = self.emit_expr(&args[0])?;
+                let path_str = self.value_to_str(&pr, &pt);
+                let out = self.r();
+                self.i(format!("{out} = call i8* @ash_file_read(i8* {path_str})"));
+                Ok((out, LLVMType::Ptr))
+            }
+            "write" => {
+                if args.len() < 2 {
+                    return Err(CodegenError::new("file.write requires (path, data)"));
+                }
+                let (pr, pt) = self.emit_expr(&args[0])?;
+                let path_str = self.value_to_str(&pr, &pt);
+                let (dr, dt) = self.emit_expr(&args[1])?;
+                let data_str = self.value_to_str(&dr, &dt);
+                self.i(format!(
+                    "call void @ash_file_write(i8* {path_str}, i8* {data_str})"
+                ));
+                Ok(("0".into(), LLVMType::Void))
+            }
+            "exists" => {
+                if args.is_empty() {
+                    return Err(CodegenError::new("file.exists requires a path argument"));
+                }
+                let (pr, pt) = self.emit_expr(&args[0])?;
+                let path_str = self.value_to_str(&pr, &pt);
+                let out = self.r();
+                self.i(format!("{out} = call i64 @ash_file_exists(i8* {path_str})"));
+                Ok((out, LLVMType::I64))
+            }
+            _ => Err(CodegenError::new(format!("file.{func} not in codegen"))),
+        }
+    }
+
+    // ── env namespace ─────────────────────────────────────────────────────────
+
+    fn emit_env_call(&mut self, func: &str, args: &[HirExpr]) -> CResult<(String, LLVMType)> {
+        match func {
+            "get" => {
+                if args.is_empty() {
+                    return Err(CodegenError::new("env.get requires a key argument"));
+                }
+                let (kr, kt) = self.emit_expr(&args[0])?;
+                let key_str = self.value_to_str(&kr, &kt);
+                let out = self.r();
+                self.i(format!("{out} = call i8* @ash_env_get(i8* {key_str})"));
+                Ok((out, LLVMType::Ptr))
+            }
+            _ => Err(CodegenError::new(format!("env.{func} not in codegen"))),
         }
     }
 }

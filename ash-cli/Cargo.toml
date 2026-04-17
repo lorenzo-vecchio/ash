@@ -1,6 +1,6 @@
 [package]
 name = "ash"
-version = "0.1.9"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -17,3 +17,6 @@ ash-codegen = { path = "../crates/ash-codegen" }
 ash-stdlib  = { path = "../crates/ash-stdlib" }
 ash-lsp     = { path = "../crates/ash-lsp" }
 tokio       = { version = "1", features = ["full"] }
+notify      = "6"
+toml        = "0.8"
+serde       = { version = "1", features = ["derive"] }
