@@ -127,32 +127,19 @@ fn cmd_build(args: &[String]) {
     }
 }
 
-/// Locate ash_runtime.c: check next to the ash binary, then relative to CWD.
-fn find_runtime_c() -> Option<PathBuf> {
-    // Try next to the binary first
-    if let Ok(exe) = std::env::current_exe() {
-        let candidate = exe.with_file_name("ash_runtime.c");
-        if candidate.exists() {
-            return Some(candidate);
-        }
-        // Also try the parent directory (e.g. release/ash → release/../ash_runtime.c)
-        if let Some(parent) = exe.parent() {
-            let candidate = parent.join("ash_runtime.c");
-            if candidate.exists() {
-                return Some(candidate);
-            }
-        }
-    }
-    // Fall back to CWD
-    let cwd = PathBuf::from("ash_runtime.c");
-    if cwd.exists() {
-        return Some(cwd);
-    }
-    None
+/// The C runtime is embedded directly in the binary so it is always available
+/// regardless of where `ash` is installed.
+const ASH_RUNTIME_C: &str = include_str!("../../ash_runtime.c");
+
+/// Write the embedded runtime to a temp file and return its path.
+fn write_runtime_c() -> Option<PathBuf> {
+    let path = std::env::temp_dir().join("ash_runtime.c");
+    std::fs::write(&path, ASH_RUNTIME_C).ok()?;
+    Some(path)
 }
 
 fn try_compile_with_clang(ll: &Path, out: &Path) -> Result<(), String> {
-    let runtime = find_runtime_c();
+    let runtime = write_runtime_c();
     // Try clang-20 first (avoids FastISel bugs in clang-18 with certain phi patterns)
     for clang in &["clang-20", "clang-18", "clang"] {
         let mut cmd = process::Command::new(clang);

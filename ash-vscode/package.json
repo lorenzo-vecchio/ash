@@ -2,7 +2,7 @@
   "name": "ash-language",
   "displayName": "Ash Language",
   "description": "Language support for the Ash programming language",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "lorenzo-vecchio",
   "engines": { "vscode": "^1.75.0" },
   "categories": ["Programming Languages"],
