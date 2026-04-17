@@ -169,11 +169,21 @@ impl Codegen {
 
     pub fn compile(mut self, hir: &HirProgram) -> CResult<String> {
         self.emit("; Ash compiled output");
+        // Standard C / LLVM intrinsics
         self.emit("declare i32 @printf(i8* nocapture, ...)");
         self.emit("declare i8* @malloc(i64)");
         self.emit("declare i64 @strlen(i8*)");
         self.emit("declare void @exit(i32)");
         self.emit("declare double @llvm.fabs.f64(double)");
+        // ash_runtime.c helpers — %AshList* is represented as i8* at LLVM IR level
+        self.emit("declare i8* @ash_list_new()");
+        self.emit("declare void @ash_list_push(i8*, i64)");
+        self.emit("declare i64 @ash_list_get(i8*, i64)");
+        self.emit("declare i64 @ash_list_len(i8*)");
+        self.emit("declare i8* @ash_str_concat(i8*, i8*)");
+        self.emit("declare i8* @ash_str_from_int(i64)");
+        self.emit("declare i8* @ash_str_from_float(double)");
+        self.emit("declare i8* @ash_str_from_bool(i64)");
         self.emit("");
 
         // Pre-register all function signatures so call sites know return types
@@ -560,12 +570,35 @@ impl Codegen {
                 let (reg, ty) = self.emit_expr(obj)?;
                 self.emit_method_call(&reg, &ty, field, &[])
             }
-            HirExprKind::Index { .. }
-            | HirExprKind::List(_)
-            | HirExprKind::Map(_)
-            | HirExprKind::Tuple(_) => {
-                Err(CodegenError::new("heap collections not yet in codegen"))
+            HirExprKind::List(items) => {
+                // Allocate a new AshList and push each element
+                let list_reg = self.r();
+                self.i(format!("{list_reg} = call i8* @ash_list_new()"));
+                for item in items {
+                    let (elem_reg, elem_ty) = self.emit_expr(item)?;
+                    // Coerce to i64 for storage in the list
+                    let stored = self.coerce(&elem_reg, &elem_ty, &LLVMType::I64);
+                    self.i(format!(
+                        "call void @ash_list_push(i8* {list_reg}, i64 {stored})"
+                    ));
+                }
+                Ok((list_reg, LLVMType::Ptr))
             }
+
+            HirExprKind::Index { obj, index } => {
+                let (obj_reg, _obj_ty) = self.emit_expr(obj)?;
+                let (idx_reg, idx_ty) = self.emit_expr(index)?;
+                let idx = self.coerce(&idx_reg, &idx_ty, &LLVMType::I64);
+                let out = self.r();
+                self.i(format!(
+                    "{out} = call i64 @ash_list_get(i8* {obj_reg}, i64 {idx})"
+                ));
+                Ok((out, LLVMType::I64))
+            }
+
+            HirExprKind::Map(_) | HirExprKind::Tuple(_) => Err(CodegenError::new(
+                "map/tuple literals not yet supported in compiled mode — use ash run",
+            )),
         }
     }
 
@@ -695,10 +728,16 @@ impl Codegen {
                 Ok((out, LLVMType::I1))
             }
             HirBinOp::StrConcat => {
-                // Call runtime strcat helper
-                Err(CodegenError::new(
-                    "string concatenation not yet in compiled mode",
-                ))
+                let (l, lt) = self.emit_expr(lhs)?;
+                let (r, rt) = self.emit_expr(rhs)?;
+                // Convert each side to i8* (string) if needed
+                let ls = self.value_to_str(&l, &lt);
+                let rs = self.value_to_str(&r, &rt);
+                let out = self.r();
+                self.i(format!(
+                    "{out} = call i8* @ash_str_concat(i8* {ls}, i8* {rs})"
+                ));
+                Ok((out, LLVMType::Ptr))
             }
         }
     }
@@ -980,6 +1019,33 @@ impl Codegen {
                 ));
                 Ok((out, ret_ty))
             }
+        }
+    }
+
+    /// Convert a register of any type to i8* (string) using runtime helpers.
+    fn value_to_str(&mut self, reg: &str, ty: &LLVMType) -> String {
+        match ty {
+            LLVMType::Ptr => reg.to_string(),
+            LLVMType::I64 => {
+                let out = self.r();
+                self.i(format!("{out} = call i8* @ash_str_from_int(i64 {reg})"));
+                out
+            }
+            LLVMType::Double => {
+                let out = self.r();
+                self.i(format!(
+                    "{out} = call i8* @ash_str_from_float(double {reg})"
+                ));
+                out
+            }
+            LLVMType::I1 => {
+                let ext = self.r();
+                self.i(format!("{ext} = zext i1 {reg} to i64"));
+                let out = self.r();
+                self.i(format!("{out} = call i8* @ash_str_from_bool(i64 {ext})"));
+                out
+            }
+            _ => reg.to_string(),
         }
     }
 

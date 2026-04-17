@@ -1130,6 +1130,11 @@ pub fn parse(tokens: Vec<Spanned<Token>>) -> PResult<Program> {
     Parser::new(tokens).parse()
 }
 
+/// Parse a single expression from a token stream (used for string interpolation lowering).
+pub fn parse_expr_from_tokens(tokens: Vec<Spanned<Token>>) -> PResult<ast::Expr> {
+    Parser::new(tokens).parse_expr()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
