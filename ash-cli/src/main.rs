@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::process;
 
-const VERSION: &str = "0.1.0";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
