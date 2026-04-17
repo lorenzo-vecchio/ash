@@ -131,6 +131,16 @@ impl Parser {
             }
             Token::Let => self.parse_let()?,
             Token::Mut => self.parse_let()?,
+            Token::Use => {
+                self.advance();
+                match self.peek().clone() {
+                    Token::Str(path) => {
+                        self.advance();
+                        StmtKind::Use(path)
+                    }
+                    _ => return Err(self.err(String::from("use requires a string path"))),
+                }
+            }
             _ => {
                 // Check for annotated bare assignment: ident: Type = expr
                 if let Token::Ident(_) = self.peek().clone() {

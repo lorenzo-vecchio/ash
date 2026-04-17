@@ -553,6 +553,11 @@ impl TypeChecker {
                 self.register_type_def(td)?;
                 HirStmtKind::Expr(HirExpr::new(HirExprKind::Bool(false), HirType::Void))
             }
+
+            // Use statements are inlined by the CLI loader; treat as no-op here
+            StmtKind::Use(_) => {
+                HirStmtKind::Expr(HirExpr::new(HirExprKind::Bool(false), HirType::Void))
+            }
         };
         Ok(HirStmt { kind })
     }

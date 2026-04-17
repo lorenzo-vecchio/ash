@@ -29,6 +29,7 @@ pub enum Token {
     Move,
     Await,
     Panic,
+    Use,
 
     // Arithmetic
     Plus,
@@ -105,6 +106,7 @@ impl std::fmt::Display for Token {
             Token::Move => "move",
             Token::Await => "await",
             Token::Panic => "panic",
+            Token::Use => "use",
             Token::Plus => "+",
             Token::Minus => "-",
             Token::Star => "*",
@@ -506,6 +508,7 @@ impl Lexer {
             "move" => Token::Move,
             "await" => Token::Await,
             "panic" => Token::Panic,
+            "use" => Token::Use,
             "true" => Token::Bool(true),
             "false" => Token::Bool(false),
             _ => Token::Ident(s),

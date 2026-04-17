@@ -489,6 +489,19 @@ fn cmd_repl() {
 // ─── shared helpers ───────────────────────────────────────────────────────────
 
 fn frontend(source: &str, path: &Path) -> ash_parser::ast::Program {
+    frontend_with_visited(source, path, &mut std::collections::HashSet::new())
+}
+
+fn frontend_with_visited(
+    source: &str,
+    path: &Path,
+    visited: &mut std::collections::HashSet<PathBuf>,
+) -> ash_parser::ast::Program {
+    use ash_parser::ast::StmtKind;
+
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    visited.insert(canonical);
+
     let tokens = match ash_lexer::Lexer::new(source).tokenize() {
         Ok(t) => t,
         Err(e) => {
@@ -496,12 +509,44 @@ fn frontend(source: &str, path: &Path) -> ash_parser::ast::Program {
             process::exit(1);
         }
     };
-    match ash_parser::parse(tokens) {
+    let program = match ash_parser::parse(tokens) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{}:{e}", path.display());
             process::exit(1);
         }
+    };
+
+    // Resolve `use "path"` statements by inlining the target file's statements
+    let base_dir = path.parent().unwrap_or(Path::new("."));
+    let mut stmts = Vec::new();
+    for stmt in program.stmts {
+        if let StmtKind::Use(ref rel_path) = stmt.kind {
+            let target = base_dir.join(rel_path);
+            let canonical_target = target.canonicalize().unwrap_or_else(|_| target.clone());
+            if visited.contains(&canonical_target) {
+                // Already loaded — skip to prevent circular imports
+                continue;
+            }
+            if !target.exists() {
+                eprintln!(
+                    "{}:use: file '{}' not found",
+                    path.display(),
+                    target.display()
+                );
+                process::exit(1);
+            }
+            let imported_source = read_source(&target);
+            let imported = frontend_with_visited(&imported_source, &target, visited);
+            stmts.extend(imported.stmts);
+        } else {
+            stmts.push(stmt);
+        }
+    }
+
+    ash_parser::ast::Program {
+        span: ash_lexer::Span::new(0, 0, 0),
+        stmts,
     }
 }
 
