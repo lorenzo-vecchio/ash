@@ -32,7 +32,7 @@ When an AI writes Ash it uses 4.6% fewer tokens than Python and 65% fewer than J
 
 ```bash
 # Install with one command (macOS / Linux)
-curl -fsSL https://raw.githubusercontent.com/lorenzovecchio/ash/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/lorenzo-vecchio/ash/main/install.sh | sh
 ```
 
 Then:
@@ -49,7 +49,7 @@ ash repl
 ### One-command install (macOS / Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lorenzovecchio/ash/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/lorenzo-vecchio/ash/main/install.sh | sh
 ```
 
 Installs the pre-built binary to `~/.local/bin/ash`. The script detects your OS and architecture automatically (Linux x86_64, macOS Apple Silicon, macOS Intel).
@@ -75,7 +75,7 @@ rm ~/.local/bin/ash
 Requires [Rust stable ≥ 1.75](https://rustup.rs).
 
 ```bash
-git clone https://github.com/lorenzovecchio/ash.git
+git clone https://github.com/lorenzo-vecchio/ash.git
 cd ash
 cargo build --release
 # Binary is at target/release/ash

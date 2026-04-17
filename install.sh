@@ -2,7 +2,7 @@
 # install.sh — install the Ash language toolchain
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/lorenzovecchio/ash/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/lorenzo-vecchio/ash/main/install.sh | sh
 #
 # To install a specific version:
 #   curl -fsSL .../install.sh | sh -s -- --version v0.2.0
@@ -16,7 +16,7 @@
 
 set -e
 
-REPO="lorenzovecchio/ash"
+REPO="lorenzo-vecchio/ash"
 BINARY="ash"
 DEFAULT_PREFIX="${HOME}/.local"
 
