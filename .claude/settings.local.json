@@ -18,7 +18,9 @@
       "Bash(cargo check:*)",
       "Bash(git tag:*)",
       "Bash(grep:*)",
-      "Bash(grep -n '\"\"version\"\"' /Users/lorenzovecchio/Desktop/REPOSITORY/ash/ash-vscode/package.json)"
+      "Bash(grep -n '\"\"version\"\"' /Users/lorenzovecchio/Desktop/REPOSITORY/ash/ash-vscode/package.json)",
+      "Bash(sed -i '' 's/^version = \"\"0.1.4\"\"/version = \"\"0.1.5\"\"/' /Users/lorenzovecchio/Desktop/REPOSITORY/ash/ash-cli/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-codegen/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-hir/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-interp/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-lexer/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-lsp/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-parser/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-stdlib/Cargo.toml /Users/lorenzovecchio/Desktop/REPOSITORY/ash/crates/ash-typeck/Cargo.toml)",
+      "Bash(sed -i '' 's/\"\"version\"\": \"\"0.1.4\"\"/\"\"version\"\": \"\"0.1.5\"\"/' /Users/lorenzovecchio/Desktop/REPOSITORY/ash/ash-vscode/package.json)"
     ]
   }
 }

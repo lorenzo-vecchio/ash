@@ -97,6 +97,7 @@ tar -xzf "${TMP}/${ARCHIVE}" -C "$TMP"
 chmod +x "${TMP}/${ASSET}"
 
 mkdir -p "$BIN_DIR"
+rm -f "${BIN_DIR}/${BINARY}"
 mv "${TMP}/${ASSET}" "${BIN_DIR}/${BINARY}"
 
 say "Installed to ${BIN_DIR}/${BINARY}"
