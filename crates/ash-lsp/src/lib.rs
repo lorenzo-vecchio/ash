@@ -18,15 +18,16 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 // ─── Semantic token types & modifiers ────────────────────────────────────────
 
 const TOKEN_TYPES: &[SemanticTokenType] = &[
-    SemanticTokenType::KEYWORD,   // 0
-    SemanticTokenType::STRING,    // 1
-    SemanticTokenType::NUMBER,    // 2
-    SemanticTokenType::OPERATOR,  // 3
-    SemanticTokenType::VARIABLE,  // 4
-    SemanticTokenType::FUNCTION,  // 5
-    SemanticTokenType::TYPE,      // 6
-    SemanticTokenType::COMMENT,   // 7
-    SemanticTokenType::PARAMETER, // 8
+    SemanticTokenType::KEYWORD,    // 0
+    SemanticTokenType::STRING,     // 1
+    SemanticTokenType::NUMBER,     // 2
+    SemanticTokenType::OPERATOR,   // 3
+    SemanticTokenType::VARIABLE,   // 4
+    SemanticTokenType::FUNCTION,   // 5
+    SemanticTokenType::TYPE,       // 6
+    SemanticTokenType::COMMENT,    // 7
+    SemanticTokenType::PARAMETER,  // 8
+    SemanticTokenType::NAMESPACE,  // 9
 ];
 
 fn token_type_index(tt: SemanticTokenType) -> u32 {
@@ -49,22 +50,99 @@ impl AshBackend {
         }
     }
 
-    /// Lex source and emit semantic tokens (relative encoding as required by LSP).
+    /// Lex source and emit context-aware semantic tokens.
     fn semantic_tokens(source: &str) -> Vec<SemanticToken> {
         let tokens = match Lexer::new(source).tokenize() {
             Ok(t) => t,
             Err(_) => return vec![],
         };
 
-        let lines: Vec<&str> = source.lines().collect();
+        // Filter out structural/whitespace tokens for context analysis,
+        // but keep their positions.
+        let meaningful: Vec<_> = tokens
+            .iter()
+            .filter(|s| {
+                !matches!(
+                    s.node,
+                    Token::Indent | Token::Dedent | Token::Newline | Token::Eof
+                )
+            })
+            .collect();
+
+        // Build the set of known stdlib namespaces so we can colour them
+        // distinctly from regular variables.
+        let stdlib_ns: std::collections::HashSet<&str> = [
+            "math", "file", "http", "json", "re", "env", "go", "db",
+            "cache", "queue", "auth", "mail", "store", "ai",
+        ]
+        .iter()
+        .copied()
+        .collect();
+
+        // Collect which indices are function parameters.
+        // We scan for `fn name ( p1 p2 ... )` and mark each bare ident
+        // inside the parens as PARAMETER.
+        let mut param_indices: std::collections::HashSet<usize> = Default::default();
+        {
+            let mut i = 0;
+            while i < meaningful.len() {
+                if matches!(meaningful[i].node, Token::Fn) {
+                    // skip fn name
+                    i += 1;
+                    if i < meaningful.len() && matches!(meaningful[i].node, Token::Ident(_)) {
+                        i += 1;
+                    }
+                    // optional `(` — collect params until `)`
+                    if i < meaningful.len() && matches!(meaningful[i].node, Token::LParen) {
+                        i += 1;
+                        while i < meaningful.len()
+                            && !matches!(meaningful[i].node, Token::RParen)
+                        {
+                            if matches!(meaningful[i].node, Token::Ident(_)) {
+                                param_indices.insert(i);
+                            }
+                            i += 1;
+                        }
+                    } else {
+                        // space-separated params until newline or body colon
+                        while i < meaningful.len()
+                            && matches!(meaningful[i].node, Token::Ident(_))
+                        {
+                            param_indices.insert(i);
+                            i += 1;
+                            // skip optional `: Type` annotation
+                            if i < meaningful.len() && matches!(meaningful[i].node, Token::Colon) {
+                                i += 1; // colon
+                                if i < meaningful.len() { i += 1; } // type
+                            }
+                        }
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+        }
 
         let mut result = Vec::new();
         let mut prev_line = 0u32;
         let mut prev_col = 0u32;
 
-        for spanned in &tokens {
-            let token_type = classify_token(&spanned.node);
-            let tt = match token_type {
+        for (idx, spanned) in meaningful.iter().enumerate() {
+            let prev_tok = idx.checked_sub(1).map(|j| &meaningful[j].node);
+            let next_tok = meaningful.get(idx + 1).map(|s| &s.node);
+            // peek two ahead to handle `ns . fn (`
+            let next2_tok = meaningful.get(idx + 2).map(|s| &s.node);
+
+            let tt = classify_token_ctx(
+                &spanned.node,
+                prev_tok,
+                next_tok,
+                next2_tok,
+                param_indices.contains(&idx),
+                &stdlib_ns,
+            );
+
+            let tt = match tt {
                 Some(t) => t,
                 None => continue,
             };
@@ -89,7 +167,6 @@ impl AshBackend {
             prev_col = col;
         }
 
-        let _ = lines; // suppress unused warning
         result
     }
 
@@ -148,8 +225,15 @@ impl AshBackend {
     }
 }
 
-/// Map a lexer token to a semantic token type, or `None` to skip it.
-fn classify_token(tok: &Token) -> Option<SemanticTokenType> {
+/// Context-aware token classifier.
+fn classify_token_ctx(
+    tok: &Token,
+    prev: Option<&Token>,
+    next: Option<&Token>,
+    next2: Option<&Token>,
+    is_param: bool,
+    stdlib_ns: &std::collections::HashSet<&str>,
+) -> Option<SemanticTokenType> {
     match tok {
         // Keywords
         Token::Fn
@@ -168,10 +252,11 @@ fn classify_token(tok: &Token) -> Option<SemanticTokenType> {
         | Token::Panic
         | Token::Use => Some(SemanticTokenType::KEYWORD),
 
+        Token::Bool(_) => Some(SemanticTokenType::KEYWORD),
+
         // Literals
         Token::Str(_) => Some(SemanticTokenType::STRING),
         Token::Int(_) | Token::Float(_) => Some(SemanticTokenType::NUMBER),
-        Token::Bool(_) => Some(SemanticTokenType::KEYWORD),
 
         // Operators
         Token::Plus
@@ -199,13 +284,66 @@ fn classify_token(tok: &Token) -> Option<SemanticTokenType> {
         | Token::Amp
         | Token::DotDot => Some(SemanticTokenType::OPERATOR),
 
-        // Identifiers — distinguish uppercase (types) from lowercase (variables)
         Token::Ident(s) => {
-            if s.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
-                Some(SemanticTokenType::TYPE)
-            } else {
-                Some(SemanticTokenType::VARIABLE)
+            let is_upper = s.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+
+            // Uppercase identifiers are always types
+            if is_upper {
+                return Some(SemanticTokenType::TYPE);
             }
+
+            // After `fn` → function definition name
+            if matches!(prev, Some(Token::Fn)) {
+                return Some(SemanticTokenType::FUNCTION);
+            }
+
+            // After `type` → type definition name (lowercase edge case)
+            if matches!(prev, Some(Token::Type)) {
+                return Some(SemanticTokenType::TYPE);
+            }
+
+            // stdlib namespace (e.g. `math`, `db`) followed by `.` → NAMESPACE
+            if stdlib_ns.contains(s.as_str()) && matches!(next, Some(Token::Dot) | Some(Token::SafeDot)) {
+                return Some(SemanticTokenType::NAMESPACE);
+            }
+
+            // After `.` (method call or namespace function) → FUNCTION if followed by `(`
+            if matches!(prev, Some(Token::Dot) | Some(Token::SafeDot)) {
+                if matches!(next, Some(Token::LParen)) {
+                    return Some(SemanticTokenType::FUNCTION);
+                }
+                // property access
+                return Some(SemanticTokenType::VARIABLE);
+            }
+
+            // Function call: ident followed by `(`
+            // But not if it's a namespace prefix (`ns.fn(` — the ns is handled above)
+            if matches!(next, Some(Token::LParen)) {
+                return Some(SemanticTokenType::FUNCTION);
+            }
+
+            // Pipeline RHS: `|> funcname` — next meaningful token after ident
+            // (funcname with no parens in pipeline position)
+            if matches!(prev, Some(Token::Pipe)) {
+                // Could be function ref passed to pipeline
+                return Some(SemanticTokenType::FUNCTION);
+            }
+
+            // Function parameter (detected by pre-pass)
+            if is_param {
+                return Some(SemanticTokenType::PARAMETER);
+            }
+
+            // Lambda parameter: `x =>` or `(x y) =>`
+            if matches!(next, Some(Token::FatArrow)) {
+                return Some(SemanticTokenType::PARAMETER);
+            }
+
+            // After `next2` is `=>` with next being a comma or rparen
+            // catches multi-param lambda `(x y) => ...`
+            // This is handled well enough by the FatArrow check above for single params
+
+            Some(SemanticTokenType::VARIABLE)
         }
 
         // Everything else (punctuation, structural): skip

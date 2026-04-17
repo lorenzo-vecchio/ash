@@ -5,17 +5,27 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#strings" },
+    { "include": "#function-definition" },
+    { "include": "#type-definition" },
     { "include": "#keywords" },
+    { "include": "#constants" },
     { "include": "#numbers" },
-    { "include": "#types" },
-    { "include": "#functions" },
-    { "include": "#operators" }
+    { "include": "#namespace-call" },
+    { "include": "#namespace-property" },
+    { "include": "#function-call" },
+    { "include": "#method-call" },
+    { "include": "#type-annotation" },
+    { "include": "#type-names" },
+    { "include": "#operators" },
+    { "include": "#variables" }
   ],
   "repository": {
+
     "comments": {
       "name": "comment.line.hash.ash",
       "match": "#.*$"
     },
+
     "strings": {
       "name": "string.quoted.double.ash",
       "begin": "\"",
@@ -26,31 +36,60 @@
           "match": "\\\\."
         },
         {
-          "name": "variable.other.ash",
-          "match": "\\{[^}]*\\}"
+          "name": "meta.interpolation.ash",
+          "begin": "\\{",
+          "end": "\\}",
+          "beginCaptures": { "0": { "name": "punctuation.definition.interpolation.begin.ash" } },
+          "endCaptures":   { "0": { "name": "punctuation.definition.interpolation.end.ash" } },
+          "patterns": [
+            { "include": "#namespace-call" },
+            { "include": "#function-call" },
+            { "include": "#operators" },
+            { "include": "#numbers" },
+            { "include": "#variables" }
+          ]
         }
       ]
     },
+
+    "function-definition": {
+      "match": "\\b(fn)\\s+([a-z_][a-zA-Z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.function.ash" },
+        "2": { "name": "entity.name.function.ash" }
+      }
+    },
+
+    "type-definition": {
+      "match": "\\b(type)\\s+([A-Za-z_][a-zA-Z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.type.ash" },
+        "2": { "name": "entity.name.type.ash" }
+      }
+    },
+
     "keywords": {
       "patterns": [
         {
           "name": "keyword.control.ash",
-          "match": "\\b(if|else|while|for|in|match|return|panic|use)\\b"
+          "match": "\\b(if|else|while|for|in|match|return|panic|use|then)\\b"
         },
         {
           "name": "keyword.declaration.ash",
-          "match": "\\b(fn|type|let|mut)\\b"
+          "match": "\\b(let|mut)\\b"
         },
         {
           "name": "keyword.other.ash",
           "match": "\\b(move|await)\\b"
-        },
-        {
-          "name": "constant.language.ash",
-          "match": "\\b(true|false|none|None)\\b"
         }
       ]
     },
+
+    "constants": {
+      "name": "constant.language.ash",
+      "match": "\\b(true|false|none|None|Some|Ok|Err)\\b"
+    },
+
     "numbers": {
       "patterns": [
         {
@@ -63,17 +102,100 @@
         }
       ]
     },
-    "types": {
+
+    "namespace-call": {
+      "match": "\\b(math|file|http|json|re|env|go|db|cache|queue|auth|mail|store|ai)\\.([a-zA-Z_][a-zA-Z0-9_]*)(?=\\s*\\()",
+      "captures": {
+        "1": { "name": "entity.name.namespace.ash" },
+        "2": { "name": "entity.name.function.ash" }
+      }
+    },
+
+    "namespace-property": {
+      "match": "\\b(math|file|http|json|re|env|go|db|cache|queue|auth|mail|store|ai)\\.([a-zA-Z_][a-zA-Z0-9_]*)",
+      "captures": {
+        "1": { "name": "entity.name.namespace.ash" },
+        "2": { "name": "variable.other.member.ash" }
+      }
+    },
+
+    "function-call": {
+      "match": "\\b([a-z_][a-zA-Z0-9_]*)(?=\\s*\\()",
+      "name": "entity.name.function.ash"
+    },
+
+    "method-call": {
+      "match": "\\.([a-z_][a-zA-Z0-9_]*)(?=\\s*\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.ash" }
+      }
+    },
+
+    "type-annotation": {
+      "match": ":\\s*([A-Z][a-zA-Z0-9_]*|int|float|str|bool|void)",
+      "captures": {
+        "1": { "name": "entity.name.type.ash" }
+      }
+    },
+
+    "type-names": {
       "name": "entity.name.type.ash",
       "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
     },
-    "functions": {
-      "name": "entity.name.function.ash",
-      "match": "(?<=fn )([a-z_][a-zA-Z0-9_]*)"
-    },
+
     "operators": {
-      "name": "keyword.operator.ash",
-      "match": "(\\+|-|\\*|/|%|==|!=|<=|>=|<|>|&&|\\|\\||!|=>|->|\\|>|\\?\\?|\\.\\.|=)"
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.ash",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.logical.ash",
+          "match": "&&|\\|\\|"
+        },
+        {
+          "name": "keyword.operator.pipeline.ash",
+          "match": "\\|>"
+        },
+        {
+          "name": "keyword.operator.arrow.ash",
+          "match": "=>|->"
+        },
+        {
+          "name": "keyword.operator.null.ash",
+          "match": "\\?\\?"
+        },
+        {
+          "name": "keyword.operator.safe-nav.ash",
+          "match": "\\?\\."
+        },
+        {
+          "name": "keyword.operator.range.ash",
+          "match": "\\.\\."
+        },
+        {
+          "name": "keyword.operator.arithmetic.ash",
+          "match": "\\+|-|\\*|/|%"
+        },
+        {
+          "name": "keyword.operator.assignment.ash",
+          "match": "(?<![=!<>])=(?!=)"
+        },
+        {
+          "name": "keyword.operator.propagate.ash",
+          "match": "!(?!=)"
+        },
+        {
+          "name": "keyword.operator.optional.ash",
+          "match": "\\?(?![?.])"
+        }
+      ]
+    },
+
+    "variables": {
+      "name": "variable.other.ash",
+      "match": "\\b[a-z_][a-zA-Z0-9_]*\\b"
     }
+
   }
 }
