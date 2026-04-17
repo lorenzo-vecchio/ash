@@ -515,6 +515,15 @@ impl Parser {
 
     fn parse_pipeline_or_null(&mut self, mut lhs: Expr) -> PResult<Expr> {
         loop {
+            // Allow |> and ?? to continue across indented continuation lines:
+            //   result = [1,2,3]
+            //       |> filter(x => x > 0)
+            //       |> map(x => x * 2)
+            let saved = self.pos;
+            // Skip over any newline / indent / dedent tokens to peek ahead
+            while matches!(self.peek(), Token::Newline | Token::Indent | Token::Dedent) {
+                self.advance();
+            }
             match self.peek() {
                 Token::Pipe => {
                     let span = self.peek_span();
@@ -540,7 +549,11 @@ impl Parser {
                         span,
                     };
                 }
-                _ => break,
+                _ => {
+                    // Not a continuation — restore position and stop
+                    self.pos = saved;
+                    break;
+                }
             }
         }
         Ok(lhs)

@@ -862,8 +862,245 @@ impl Env {
                 name: Some("json.str".into()),
                 params: vec![],
                 body: FnBody::Native(std::sync::Arc::new(|args| {
-                    let s = args.first().map(|v| v.to_string()).unwrap_or_default();
-                    Ok(Value::Str(s))
+                    let v = args
+                        .first()
+                        .ok_or_else(|| InterpError::runtime("json.str requires 1 arg"))?;
+                    let j = value_to_json(v);
+                    Ok(Value::Str(j.to_string()))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "json.pretty",
+            Value::Fn(FnValue {
+                name: Some("json.pretty".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let v = args
+                        .first()
+                        .ok_or_else(|| InterpError::runtime("json.pretty requires 1 arg"))?;
+                    let j = value_to_json(v);
+                    Ok(Value::Str(
+                        serde_json::to_string_pretty(&j)
+                            .map_err(|e| InterpError::runtime(e.to_string()))?,
+                    ))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "json.parse",
+            Value::Fn(FnValue {
+                name: Some("json.parse".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let s = match args.first() {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => return Err(InterpError::runtime("json.parse requires a string")),
+                    };
+                    match serde_json::from_str::<serde_json::Value>(&s) {
+                        Ok(j) => Ok(Value::Option(Some(Box::new(json_to_value(j))))),
+                        Err(_) => Ok(Value::Option(None)),
+                    }
+                })),
+                closure: Env::default(),
+            }),
+        );
+
+        // -- re.* ------------------------------------------------------------
+        self.define(
+            "re.match",
+            Value::Fn(FnValue {
+                name: Some("re.match".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let (pat, s) = re_args("re.match", args)?;
+                    let re =
+                        regex::Regex::new(&pat).map_err(|e| InterpError::runtime(e.to_string()))?;
+                    Ok(Value::Bool(re.is_match(&s)))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "re.find",
+            Value::Fn(FnValue {
+                name: Some("re.find".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let (pat, s) = re_args("re.find", args)?;
+                    let re =
+                        regex::Regex::new(&pat).map_err(|e| InterpError::runtime(e.to_string()))?;
+                    Ok(match re.find(&s) {
+                        Some(m) => {
+                            Value::Option(Some(Box::new(Value::Str(m.as_str().to_string()))))
+                        }
+                        None => Value::Option(None),
+                    })
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "re.findall",
+            Value::Fn(FnValue {
+                name: Some("re.findall".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let (pat, s) = re_args("re.findall", args)?;
+                    let re =
+                        regex::Regex::new(&pat).map_err(|e| InterpError::runtime(e.to_string()))?;
+                    Ok(Value::List(
+                        re.find_iter(&s)
+                            .map(|m| Value::Str(m.as_str().to_string()))
+                            .collect(),
+                    ))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "re.replace",
+            Value::Fn(FnValue {
+                name: Some("re.replace".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    if args.len() < 3 {
+                        return Err(InterpError::runtime(
+                            "re.replace(pattern, text, replacement)",
+                        ));
+                    }
+                    let (pat, s) = re_args("re.replace", args)?;
+                    let repl = match &args[2] {
+                        Value::Str(r) => r.clone(),
+                        _ => {
+                            return Err(InterpError::runtime(
+                                "re.replace: replacement must be string",
+                            ))
+                        }
+                    };
+                    let re =
+                        regex::Regex::new(&pat).map_err(|e| InterpError::runtime(e.to_string()))?;
+                    Ok(Value::Str(re.replace_all(&s, repl.as_str()).into_owned()))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "re.split",
+            Value::Fn(FnValue {
+                name: Some("re.split".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let (pat, s) = re_args("re.split", args)?;
+                    let re =
+                        regex::Regex::new(&pat).map_err(|e| InterpError::runtime(e.to_string()))?;
+                    Ok(Value::List(
+                        re.split(&s).map(|p| Value::Str(p.to_string())).collect(),
+                    ))
+                })),
+                closure: Env::default(),
+            }),
+        );
+
+        // -- http.* ----------------------------------------------------------
+        self.define(
+            "http.get",
+            Value::Fn(FnValue {
+                name: Some("http.get".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let url = http_url("http.get", args)?;
+                    match ureq::get(&url).call() {
+                        Ok(resp) => {
+                            let body = resp
+                                .into_string()
+                                .map_err(|e| InterpError::runtime(e.to_string()))?;
+                            Ok(Value::Option(Some(Box::new(Value::Str(body)))))
+                        }
+                        Err(_) => Ok(Value::Option(None)),
+                    }
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "http.post",
+            Value::Fn(FnValue {
+                name: Some("http.post".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let (url, body) = http_url_body("http.post", args)?;
+                    match ureq::post(&url).send_string(&body) {
+                        Ok(resp) => {
+                            let r = resp
+                                .into_string()
+                                .map_err(|e| InterpError::runtime(e.to_string()))?;
+                            Ok(Value::Option(Some(Box::new(Value::Str(r)))))
+                        }
+                        Err(_) => Ok(Value::Option(None)),
+                    }
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "http.put",
+            Value::Fn(FnValue {
+                name: Some("http.put".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let (url, body) = http_url_body("http.put", args)?;
+                    match ureq::put(&url).send_string(&body) {
+                        Ok(resp) => {
+                            let r = resp
+                                .into_string()
+                                .map_err(|e| InterpError::runtime(e.to_string()))?;
+                            Ok(Value::Option(Some(Box::new(Value::Str(r)))))
+                        }
+                        Err(_) => Ok(Value::Option(None)),
+                    }
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "http.del",
+            Value::Fn(FnValue {
+                name: Some("http.del".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let url = http_url("http.del", args)?;
+                    match ureq::delete(&url).call() {
+                        Ok(resp) => {
+                            let r = resp
+                                .into_string()
+                                .map_err(|e| InterpError::runtime(e.to_string()))?;
+                            Ok(Value::Option(Some(Box::new(Value::Str(r)))))
+                        }
+                        Err(_) => Ok(Value::Option(None)),
+                    }
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "http.patch",
+            Value::Fn(FnValue {
+                name: Some("http.patch".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let (url, body) = http_url_body("http.patch", args)?;
+                    match ureq::patch(&url).send_string(&body) {
+                        Ok(resp) => {
+                            let r = resp
+                                .into_string()
+                                .map_err(|e| InterpError::runtime(e.to_string()))?;
+                            Ok(Value::Option(Some(Box::new(Value::Str(r)))))
+                        }
+                        Err(_) => Ok(Value::Option(None)),
+                    }
                 })),
                 closure: Env::default(),
             }),
@@ -2254,6 +2491,123 @@ impl Interpreter {
         }
         Ok(result)
     }
+}
+
+// --- Stdlib helpers ----------------------------------------------------------
+
+/// Convert a Value to a serde_json::Value for json.str / json.pretty
+fn value_to_json(v: &Value) -> serde_json::Value {
+    match v {
+        Value::Int(n) => serde_json::Value::Number((*n).into()),
+        Value::Float(f) => serde_json::Number::from_f64(*f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        Value::Bool(b) => serde_json::Value::Bool(*b),
+        Value::Str(s) => serde_json::Value::String(s.clone()),
+        Value::Unit | Value::Option(None) => serde_json::Value::Null,
+        Value::Option(Some(inner)) => value_to_json(inner),
+        Value::List(items) => serde_json::Value::Array(items.iter().map(value_to_json).collect()),
+        Value::Map(pairs) => {
+            let mut map = serde_json::Map::new();
+            for (k, v) in pairs {
+                map.insert(k.to_string(), value_to_json(v));
+            }
+            serde_json::Value::Object(map)
+        }
+        Value::Struct(_, fields) => {
+            let mut map = serde_json::Map::new();
+            for (k, v) in fields {
+                map.insert(k.clone(), value_to_json(v));
+            }
+            serde_json::Value::Object(map)
+        }
+        Value::Ok(inner) => value_to_json(inner),
+        Value::Err(inner) => {
+            let mut map = serde_json::Map::new();
+            map.insert("err".to_string(), value_to_json(inner));
+            serde_json::Value::Object(map)
+        }
+        Value::Tuple(items) => serde_json::Value::Array(items.iter().map(value_to_json).collect()),
+        Value::Variant(name, fields) => {
+            if fields.is_empty() {
+                serde_json::Value::String(name.clone())
+            } else {
+                let mut map = serde_json::Map::new();
+                map.insert(
+                    name.clone(),
+                    serde_json::Value::Array(fields.iter().map(value_to_json).collect()),
+                );
+                serde_json::Value::Object(map)
+            }
+        }
+        Value::Fn(_) => serde_json::Value::String("<fn>".to_string()),
+    }
+}
+
+/// Convert a serde_json::Value to a Value
+fn json_to_value(j: serde_json::Value) -> Value {
+    match j {
+        serde_json::Value::Null => Value::Option(None),
+        serde_json::Value::Bool(b) => Value::Bool(b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Value::Int(i)
+            } else {
+                Value::Float(n.as_f64().unwrap_or(0.0))
+            }
+        }
+        serde_json::Value::String(s) => Value::Str(s),
+        serde_json::Value::Array(arr) => Value::List(arr.into_iter().map(json_to_value).collect()),
+        serde_json::Value::Object(obj) => Value::Map(
+            obj.into_iter()
+                .map(|(k, v)| (Value::Str(k), json_to_value(v)))
+                .collect(),
+        ),
+    }
+}
+
+/// Extract (pattern, text) from re.* args
+fn re_args(name: &str, args: &[Value]) -> InterpResult<(String, String)> {
+    if args.len() < 2 {
+        return Err(InterpError::runtime(format!("{name}(pattern, text)")));
+    }
+    let pat = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => {
+            return Err(InterpError::runtime(format!(
+                "{name}: pattern must be string"
+            )))
+        }
+    };
+    let text = match &args[1] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(InterpError::runtime(format!("{name}: text must be string"))),
+    };
+    Ok((pat, text))
+}
+
+/// Extract url from http.get / http.del args
+fn http_url(name: &str, args: &[Value]) -> InterpResult<String> {
+    match args.first() {
+        Some(Value::Str(s)) => Ok(s.clone()),
+        _ => Err(InterpError::runtime(format!("{name}: url must be string"))),
+    }
+}
+
+/// Extract (url, body) from http.post / http.put / http.patch args
+fn http_url_body(name: &str, args: &[Value]) -> InterpResult<(String, String)> {
+    if args.len() < 2 {
+        return Err(InterpError::runtime(format!("{name}(url, body)")));
+    }
+    let url = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(InterpError::runtime(format!("{name}: url must be string"))),
+    };
+    let body = match &args[1] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(InterpError::runtime(format!("{name}: body must be string"))),
+    };
+    Ok((url, body))
 }
 
 // --- Public API --------------------------------------------------------------

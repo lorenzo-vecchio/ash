@@ -8,7 +8,11 @@
       "Bash(grep -v \"^warning: \\\\`\")",
       "Bash(chmod +x /Users/lorenzovecchio/Desktop/REPOSITORY/ash/install.sh)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "Bash(git stash:*)"
     ]
   }
 }
