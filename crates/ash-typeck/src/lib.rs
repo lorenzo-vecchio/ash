@@ -251,6 +251,159 @@ impl TypeChecker {
             self.fn_sigs
                 .insert(name.to_string(), (params.to_vec(), ret.clone()));
         }
+
+        // Register stdlib namespace functions (all accept Unknown args for flexibility)
+        let u = HirType::Unknown;
+        let s = HirType::Str;
+        let b = HirType::Bool;
+        let i = HirType::Int;
+        let ns_fns: &[(&str, &[HirType], HirType)] = &[
+            // math.*
+            ("math.floor", &[u.clone()], i.clone()),
+            ("math.ceil", &[u.clone()], i.clone()),
+            ("math.round", &[u.clone()], i.clone()),
+            ("math.sqrt", &[u.clone()], HirType::Float),
+            ("math.pow", &[u.clone(), u.clone()], HirType::Float),
+            ("math.log", &[u.clone()], HirType::Float),
+            ("math.sin", &[u.clone()], HirType::Float),
+            ("math.cos", &[u.clone()], HirType::Float),
+            ("math.tan", &[u.clone()], HirType::Float),
+            ("math.abs", &[u.clone()], u.clone()),
+            ("math.clamp", &[u.clone(), u.clone(), u.clone()], u.clone()),
+            // file.*
+            (
+                "file.read",
+                &[s.clone()],
+                HirType::Option(Box::new(s.clone())),
+            ),
+            ("file.write", &[s.clone(), s.clone()], HirType::Void),
+            ("file.append", &[s.clone(), s.clone()], HirType::Void),
+            ("file.exists", &[s.clone()], b.clone()),
+            ("file.rm", &[s.clone()], HirType::Void),
+            ("file.mkdir", &[s.clone()], HirType::Void),
+            ("file.ls", &[s.clone()], HirType::List(Box::new(s.clone()))),
+            // env.*
+            (
+                "env.get",
+                &[s.clone()],
+                HirType::Option(Box::new(s.clone())),
+            ),
+            ("env.require", &[s.clone()], s.clone()),
+            ("env.set", &[s.clone(), s.clone()], HirType::Void),
+            // json.*
+            ("json.str", &[u.clone()], s.clone()),
+            ("json.pretty", &[u.clone()], s.clone()),
+            (
+                "json.parse",
+                &[s.clone()],
+                HirType::Option(Box::new(u.clone())),
+            ),
+            // re.*
+            ("re.match", &[s.clone(), s.clone()], b.clone()),
+            (
+                "re.find",
+                &[s.clone(), s.clone()],
+                HirType::Option(Box::new(s.clone())),
+            ),
+            (
+                "re.findall",
+                &[s.clone(), s.clone()],
+                HirType::List(Box::new(s.clone())),
+            ),
+            ("re.replace", &[s.clone(), s.clone(), s.clone()], s.clone()),
+            (
+                "re.split",
+                &[s.clone(), s.clone()],
+                HirType::List(Box::new(s.clone())),
+            ),
+            // http.*
+            (
+                "http.get",
+                &[s.clone()],
+                HirType::Option(Box::new(s.clone())),
+            ),
+            (
+                "http.post",
+                &[s.clone(), s.clone()],
+                HirType::Option(Box::new(s.clone())),
+            ),
+            (
+                "http.put",
+                &[s.clone(), s.clone()],
+                HirType::Option(Box::new(s.clone())),
+            ),
+            (
+                "http.del",
+                &[s.clone()],
+                HirType::Option(Box::new(s.clone())),
+            ),
+            (
+                "http.patch",
+                &[s.clone(), s.clone()],
+                HirType::Option(Box::new(s.clone())),
+            ),
+            // db.*
+            ("db.connect", &[s.clone()], u.clone()),
+            ("db.exec", &[u.clone(), s.clone()], i.clone()),
+            ("db.query", &[u.clone(), s.clone()], u.clone()),
+            ("db.close", &[u.clone()], HirType::Void),
+            // go.*
+            ("go.sleep", &[i.clone()], HirType::Void),
+            ("go.spawn", &[u.clone()], u.clone()),
+            ("go.wait", &[u.clone()], u.clone()),
+            ("go.all", &[u.clone()], u.clone()),
+            // cache.*
+            ("cache.set", &[s.clone(), u.clone()], HirType::Void),
+            (
+                "cache.get",
+                &[s.clone()],
+                HirType::Option(Box::new(u.clone())),
+            ),
+            ("cache.has", &[s.clone()], b.clone()),
+            ("cache.del", &[s.clone()], HirType::Void),
+            ("cache.clear", &[], HirType::Void),
+            // queue.*
+            ("queue.push", &[s.clone(), u.clone()], HirType::Void),
+            (
+                "queue.pop",
+                &[s.clone()],
+                HirType::Option(Box::new(u.clone())),
+            ),
+            ("queue.len", &[s.clone()], i.clone()),
+            ("queue.clear", &[s.clone()], HirType::Void),
+            // assert
+            ("assert", &[b.clone(), s.clone()], HirType::Void),
+            // ai.*
+            ("ai.ask", &[s.clone()], s.clone()),
+            ("ai.complete", &[s.clone()], s.clone()),
+            ("ai.chat", &[s.clone()], s.clone()),
+        ];
+        for (name, params, ret) in ns_fns {
+            self.fn_sigs
+                .insert(name.to_string(), (params.to_vec(), ret.clone()));
+        }
+        // Constants
+        self.env
+            .define("none", HirType::Option(Box::new(HirType::Unknown)));
+        self.env
+            .define("None", HirType::Option(Box::new(HirType::Unknown)));
+        self.fn_sigs.insert(
+            "Some".into(),
+            (
+                vec![HirType::Unknown],
+                HirType::Option(Box::new(HirType::Unknown)),
+            ),
+        );
+        self.fn_sigs
+            .insert("Ok".into(), (vec![HirType::Unknown], HirType::Unknown));
+        self.fn_sigs
+            .insert("Err".into(), (vec![HirType::Unknown], HirType::Unknown));
+        self.fn_sigs
+            .insert("panic".into(), (vec![HirType::Str], HirType::Void));
+        self.fn_sigs.insert(
+            "clamp".into(),
+            (vec![HirType::Unknown; 3].to_vec(), HirType::Unknown),
+        );
     }
 
     // -- public entry ---------------------------------------------------------
