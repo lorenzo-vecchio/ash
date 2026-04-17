@@ -737,45 +737,47 @@ go.sleep(500)   # sleep 500 milliseconds
 
 ## 15. Module system
 
-### Files and folders
+### Inline imports with `use`
+
+Include another `.ash` file's definitions into the current file:
+
+```ash
+use "models/user.ash"
+use "helpers/format.ash"
+
+u = User { id: 1, name: "Alice" }
+```
+
+The `use` statement inlines the file's definitions at the point of inclusion. Circular
+imports are detected and skipped automatically.
+
+### Files and folders (planned)
+
+The long-term module model is folder-based:
 
 - A folder is a module — its name is the module name
 - Files inside the folder are submodules
-- No `import`, `use`, or `require` statements anywhere
+- Qualify with the module path:
 
 ```
 src/
   main.ash          # top-level code
-  db/
-    conn.ash        # db.conn function lives here
-    query.ash       # db.query lives here
   models/
-    user.ash        # models.User type lives here
+    user.ash        # models.User lives here
 ```
 
-### Using code from other modules
-
-Qualify with the module path — that's it:
-
-```ash
-# In main.ash — no imports needed
-conn   = db.connect(env.require("DATABASE_URL"))
-users  = db.query(conn, "SELECT * FROM users")
-user   = models.User { id: 1, name: "Alice" }
-```
+> **Status:** Folder-based auto-discovery is not yet implemented. Use explicit
+> `use "path.ash"` statements in the meantime.
 
 ### External packages
 
-External packages are declared in a `ash.toml` lockfile and accessed the same way as local modules:
-
-```ash
-result = http.get("https://api.example.com")
-parsed = json.parse(result ?? "{}")
-```
+> **Status:** No package manager yet. External packages must be vendored manually
+> and loaded with `use`.
 
 ### Circular dependencies
 
-Circular imports between modules are a compile-time error.
+Circular `use` imports are detected and skipped (the second occurrence is a no-op).
+Compile-time errors for circular folder-based imports are planned.
 
 ---
 
@@ -870,26 +872,44 @@ env.set(key val)   # void
 
 ### go.* (concurrency)
 
+> **`go.sleep`** is fully implemented.
+> **`go.spawn`** is a stub — it returns an error. `go.wait`, `go.all`, `go.race`,
+> and `go.chan` are registered stubs pending the `go.spawn` implementation.
+
 ```ash
-go.spawn(f)        # Task[T]
-go.wait(task)      # T
-go.all(tasks)      # [T]
-go.race(tasks)     # T
-go.sleep(ms)       # void
-go.chan()          # Chan[T]
+go.spawn(f)        # Task[T] — stub
+go.wait(task)      # T       — stub
+go.all(tasks)      # [T]     — stub
+go.race(tasks)     # T       — stub
+go.sleep(ms)       # void    — implemented
+go.chan()          # Chan[T] — stub
 ```
 
 ### db.*
 
+Backed by **SQLite** via `rusqlite`. Connection URLs:
+- `sqlite:///path/to/db.sqlite` — file-based database
+- `sqlite::memory:` — in-memory database (lost on close)
+
 ```ash
 db.connect(url)           # Connection
-db.query(conn sql args)   # [{str: any}]
+db.query(conn sql args)   # [{str: any}] — rows as list of maps
 db.exec(conn sql args)    # int (rows affected)
 db.tx(conn f)             # T (auto-rollback on error)
 db.close(conn)            # void
 ```
 
+Positional parameters use `?` placeholders:
+```ash
+conn = db.connect("sqlite:///app.db")
+rows = db.query(conn, "SELECT * FROM users WHERE id = ?", id)
+db.exec(conn, "INSERT INTO users (name, email) VALUES (?, ?)", name, email)
+```
+
 ### cache.*
+
+In-memory key-value store backed by a `HashMap` with optional TTL using `std::time::Instant`.
+Data is process-local — not shared across processes and not persistent.
 
 ```ash
 cache.get(key)              # ?str
@@ -901,6 +921,9 @@ cache.flush()               # void
 
 ### auth.*
 
+> **Status: stubs.** These functions return a "not yet implemented" error.
+> Full implementation (bcrypt + jsonwebtoken) is planned.
+
 ```ash
 auth.jwt(payload secret)      # str
 auth.verify(token secret)     # ?{str: any}
@@ -908,15 +931,48 @@ auth.hash(password)           # str
 auth.check(password hash)     # bool
 ```
 
-### ai.*
+### mail.*
+
+> **Status: stub.** Returns a "not yet implemented" error.
+> Planned: `lettre` crate with `SMTP_HOST` / `SMTP_USER` / `SMTP_PASS` env vars.
 
 ```ash
-ai.complete(prompt)           # ?str
-ai.chat(messages)             # ?str
-ai.embed(text)                # [float]
-ai.similarity(a b)            # float
-ai.classify(text labels)      # str
-ai.moderate(text)             # bool
+mail.send(to subject body)    # void
+mail.html(to subject html)    # void
+```
+
+### store.*
+
+> **Status: stub.** Returns a "not yet implemented" error.
+> Planned: local filesystem backend first, then S3-compatible via `STORE_URL`.
+
+```ash
+store.put(key data)           # void
+store.get(key)                # ?str
+store.del(key)                # void
+store.url(key)                # str — public URL
+store.list(prefix)            # [str]
+```
+
+### ai.*
+
+Calls the **Anthropic API** (`api.anthropic.com`). Requires `ANTHROPIC_API_KEY` to be set
+in the environment. Uses `claude-3-5-haiku-20241022` by default.
+
+```ash
+ai.complete(prompt)           # ?str — single-turn completion
+ai.chat(messages)             # ?str — messages is [{role: str, content: str}]
+ai.embed(text)                # [float] — stub
+ai.similarity(a b)            # float — stub
+ai.classify(text labels)      # str — stub
+ai.moderate(text)             # bool — stub
+```
+
+Example:
+```ash
+key = env.require("ANTHROPIC_API_KEY")
+reply = ai.complete("What is 2 + 2?") ?? "no response"
+println(reply)
 ```
 
 ---
@@ -962,11 +1018,25 @@ Source
 
 **Characteristics:**
 - Requires `clang` (tested with clang-18 and clang-20)
-- Produces fast, self-contained native binaries
+- Produces fast, self-contained native binaries via `ash_runtime.c` linked by clang
 - No runtime, no GC, no startup overhead
 - On the compute benchmark: faster than Go, 11.5x faster than Python
-- Currently supports: arithmetic, control flow, functions, recursion, match, while, for, math.* calls
-- Not yet in codegen: heap collections (lists/maps), string concatenation, closures in compiled mode
+
+**Currently supported in codegen:**
+- Arithmetic, comparisons, boolean logic
+- Control flow: `if/else`, `while`, `for`
+- Functions with explicit or inferred return types
+- Recursion
+- `match` on integers and union variants
+- `math.*` calls
+- `println` with int, float, string arguments
+- String interpolation (lowered to `StrConcat` chains via `@ash_str_concat`)
+- Heap lists (`[int]`) via `ash_list_new/push/get/len` from `ash_runtime.c`
+
+**Not yet in codegen:**
+- Heap maps (`{str: any}`)
+- Closures / lambdas passed as values
+- Stdlib calls other than `math.*` and `println`
 
 ---
 
