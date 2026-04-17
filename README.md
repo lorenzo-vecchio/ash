@@ -31,53 +31,61 @@ When an AI writes Ash it uses 4.6% fewer tokens than Python and 65% fewer than J
 ## Quick start
 
 ```bash
-cargo build --release
-./target/release/ash run examples/hello.ash
-./target/release/ash repl
+# Install with one command (macOS / Linux)
+curl -fsSL https://raw.githubusercontent.com/lorenzovecchio/ash/main/install.sh | sh
+```
+
+Then:
+
+```bash
+ash run examples/hello.ash
+ash repl
 ```
 
 ---
 
-## Installation & Building
+## Installation
 
-### Prerequisites
-
-- **Rust toolchain** (stable, ≥ 1.75) — install via [rustup](https://rustup.rs):
-  ```bash
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-  ```
-- **clang** — only required for the native-compilation path (`ash build`). The interpreter (`ash run`) has no external dependencies.
-  ```bash
-  # macOS
-  xcode-select --install
-  # Ubuntu / Debian
-  sudo apt-get install clang
-  # Fedora / RHEL
-  sudo dnf install clang
-  ```
-
-### Clone & build from source
+### One-command install (macOS / Linux)
 
 ```bash
-git clone https://github.com/yourusername/ash.git
-cd ash
-cargo build --release
+curl -fsSL https://raw.githubusercontent.com/lorenzovecchio/ash/main/install.sh | sh
 ```
 
-The `ash` binary is produced at `target/release/ash`. You can run it in place or copy it onto your `PATH`:
+Installs the pre-built binary to `~/.local/bin/ash`. The script detects your OS and architecture automatically (Linux x86_64, macOS Apple Silicon, macOS Intel).
+
+**Options:**
 
 ```bash
-# Add to PATH for the current session
-export PATH="$PWD/target/release:$PATH"
+# Pin a specific version
+curl -fsSL .../install.sh | sh -s -- --version v0.2.0
 
-# Or install it permanently via cargo
-cargo install --path ash-cli
+# Install to a custom directory
+curl -fsSL .../install.sh | sh -s -- --prefix /usr/local
+```
+
+**Uninstall:**
+
+```bash
+rm ~/.local/bin/ash
+```
+
+### Build from source
+
+Requires [Rust stable ≥ 1.75](https://rustup.rs).
+
+```bash
+git clone https://github.com/lorenzovecchio/ash.git
+cd ash
+cargo build --release
+# Binary is at target/release/ash
+export PATH="$PWD/target/release:$PATH"
 ```
 
 ### Verifying the installation
 
 ```bash
-ash --version
+ash version
 ash repl           # open an interactive REPL
 ash run examples/hello.ash
 ```
@@ -90,6 +98,8 @@ ash run examples/hello.ash
 | `ash build <file> -o <out>` | Compile to a native binary via LLVM IR → clang |
 | `ash check <file>` | Type-check without running |
 | `ash fmt <file>` | Auto-format in place |
+| `ash test <file>` | Run all `test_*` functions and report results |
+| `ash lsp` | Start the language server (used by editor extensions) |
 | `ash repl` | Launch the interactive REPL |
 | `ash docs <namespace>` | Browse stdlib docs (e.g. `ash docs math`) |
 
