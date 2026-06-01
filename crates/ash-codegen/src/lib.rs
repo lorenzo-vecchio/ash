@@ -1004,6 +1004,34 @@ impl Codegen {
                 };
                 Ok((out, LLVMType::Double))
             }
+            "str" => {
+                if args.is_empty() {
+                    return Ok(("0".into(), LLVMType::Ptr));
+                }
+                let (r, t) = self.emit_expr(&args[0])?;
+                let out = self.r();
+                match t {
+                    LLVMType::Ptr => Ok((r, LLVMType::Ptr)),
+                    LLVMType::I64 => {
+                        self.i(format!("{out} = call i8* @ash_str_from_int(i64 {r})"));
+                        Ok((out, LLVMType::Ptr))
+                    }
+                    LLVMType::Double => {
+                        self.i(format!("{out} = call i8* @ash_str_from_float(double {r})"));
+                        Ok((out, LLVMType::Ptr))
+                    }
+                    LLVMType::I1 => {
+                        let ext = self.r();
+                        self.i(format!("{ext} = zext i1 {r} to i64"));
+                        self.i(format!("{out} = call i8* @ash_str_from_bool(i64 {ext})"));
+                        Ok((out, LLVMType::Ptr))
+                    }
+                    _ => {
+                        self.i(format!("{out} = call i8* @ash_str_from_int(i64 {r})"));
+                        Ok((out, LLVMType::Ptr))
+                    }
+                }
+            }
             "abs" => {
                 if args.is_empty() {
                     return Ok(("0".into(), LLVMType::I64));

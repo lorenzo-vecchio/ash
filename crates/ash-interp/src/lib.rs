@@ -1005,6 +1005,46 @@ impl Env {
                 closure: Env::default(),
             }),
         );
+        self.define(
+            "file.mv",
+            Value::Fn(FnValue {
+                name: Some("file.mv".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    if args.len() < 2 {
+                        return Err(InterpError::runtime("file.mv requires src and dst"));
+                    }
+                    let (src, dst) = match (&args[0], &args[1]) {
+                        (Value::Str(s), Value::Str(d)) => (s.clone(), d.clone()),
+                        _ => return Err(InterpError::runtime("file.mv requires string paths")),
+                    };
+                    std::fs::rename(&src, &dst)
+                        .map(|_| Value::Unit)
+                        .map_err(|e| InterpError::runtime(e.to_string()))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "file.cp",
+            Value::Fn(FnValue {
+                name: Some("file.cp".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    if args.len() < 2 {
+                        return Err(InterpError::runtime("file.cp requires src and dst"));
+                    }
+                    let (src, dst) = match (&args[0], &args[1]) {
+                        (Value::Str(s), Value::Str(d)) => (s.clone(), d.clone()),
+                        _ => return Err(InterpError::runtime("file.cp requires string paths")),
+                    };
+                    std::fs::copy(&src, &dst)
+                        .map(|_| Value::Unit)
+                        .map_err(|e| InterpError::runtime(e.to_string()))
+                })),
+                closure: Env::default(),
+            }),
+        );
 
         // -- json.* ----------------------------------------------------------
         self.define(
@@ -2452,6 +2492,141 @@ impl Env {
                 );
             }
         }
+
+        // -- ai.json (structured JSON output from LLM) ----------------------
+        self.define(
+            "ai.json",
+            Value::Fn(FnValue {
+                name: Some("ai.json".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+                        InterpError::runtime(
+                            "ai.*: ANTHROPIC_API_KEY environment variable not set",
+                        )
+                    })?;
+                    let prompt = args
+                        .first()
+                        .ok_or_else(|| {
+                            InterpError::runtime("ai.json: requires a prompt string")
+                        })?
+                        .to_string();
+                    let model = args
+                        .get(1)
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "claude-haiku-4-5-20251001".to_string());
+
+                    let system = "You are a JSON generator. Respond with ONLY valid JSON matching the requested structure. Do not include any explanation, markdown formatting, or code fences. Return ONLY the raw JSON object.";
+                    let body = serde_json::json!({
+                        "model": model,
+                        "max_tokens": 4096,
+                        "system": system,
+                        "messages": [{"role": "user", "content": prompt}]
+                    })
+                    .to_string();
+
+                    let resp = ureq::post("https://api.anthropic.com/v1/messages")
+                        .set("x-api-key", &api_key)
+                        .set("anthropic-version", "2023-06-01")
+                        .set("content-type", "application/json")
+                        .send_string(&body)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+
+                    let text = resp
+                        .into_string()
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+
+                    let json: serde_json::Value = serde_json::from_str(&text)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+                    let content = json["content"][0]["text"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
+
+                    // Strip markdown code fences if present
+                    let cleaned = content
+                        .trim_start_matches("```json")
+                        .trim_start_matches("```")
+                        .trim_end_matches("```")
+                        .trim();
+
+                    // Parse the response as JSON
+                    let parsed: serde_json::Value = serde_json::from_str(cleaned)
+                        .map_err(|e| InterpError::runtime(format!("ai.json: LLM returned invalid JSON: {e}\n\nResponse was:\n{content}")))?;
+
+                    Ok(json_to_value(parsed))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        // -- ai.structured (typed structured output with schema guidance) ----
+        self.define(
+            "ai.structured",
+            Value::Fn(FnValue {
+                name: Some("ai.structured".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+                        InterpError::runtime(
+                            "ai.*: ANTHROPIC_API_KEY environment variable not set",
+                        )
+                    })?;
+                    let prompt = args
+                        .first()
+                        .ok_or_else(|| {
+                            InterpError::runtime("ai.structured: requires a prompt string")
+                        })?
+                        .to_string();
+                    let schema_desc = args
+                        .get(1)
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "any valid JSON object".to_string());
+                    let model = args
+                        .get(2)
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "claude-haiku-4-5-20251001".to_string());
+
+                    let system = format!("You are a structured data extractor. Given a user request, analyze it and return JSON that matches this schema:\n\n{schema_desc}\n\nRespond with ONLY valid JSON. Do not include any explanation, markdown formatting, or code fences. Return ONLY the raw JSON object.");
+                    let body = serde_json::json!({
+                        "model": model,
+                        "max_tokens": 4096,
+                        "system": system,
+                        "messages": [{"role": "user", "content": prompt}]
+                    })
+                    .to_string();
+
+                    let resp = ureq::post("https://api.anthropic.com/v1/messages")
+                        .set("x-api-key", &api_key)
+                        .set("anthropic-version", "2023-06-01")
+                        .set("content-type", "application/json")
+                        .send_string(&body)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+
+                    let text = resp
+                        .into_string()
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+
+                    let json: serde_json::Value = serde_json::from_str(&text)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+                    let content = json["content"][0]["text"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
+
+                    let cleaned = content
+                        .trim_start_matches("```json")
+                        .trim_start_matches("```")
+                        .trim_end_matches("```")
+                        .trim();
+
+                    let parsed: serde_json::Value = serde_json::from_str(cleaned)
+                        .map_err(|e| InterpError::runtime(format!("ai.structured: LLM returned invalid JSON: {e}\n\nResponse was:\n{content}")))?;
+
+                    Ok(json_to_value(parsed))
+                })),
+                closure: Env::default(),
+            }),
+        );
 
         // -- assert (core builtin for ash test) ------------------------------
         self.define(

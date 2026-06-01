@@ -830,15 +830,29 @@ fn ai_fns() -> Vec<StdlibFn> {
             namespace: "ai",
             name: "complete",
             params: &[("prompt", "str")],
-            ret: "?str",
+            ret: "str",
             doc: "LLM text completion",
         },
         StdlibFn {
             namespace: "ai",
             name: "chat",
             params: &[("messages", "[{str:str}]")],
-            ret: "?str",
+            ret: "str",
             doc: "LLM chat completion",
+        },
+        StdlibFn {
+            namespace: "ai",
+            name: "json",
+            params: &[("prompt", "str"), ("model", "str?")],
+            ret: "any",
+            doc: "Ask LLM to return structured JSON, returns parsed value",
+        },
+        StdlibFn {
+            namespace: "ai",
+            name: "structured",
+            params: &[("prompt", "str"), ("schema", "str?"), ("model", "str?")],
+            ret: "any",
+            doc: "Extract structured data matching a schema description",
         },
         StdlibFn {
             namespace: "ai",
@@ -993,6 +1007,13 @@ pub mod file {
     }
     pub fn mkdir(path: &str) -> Result<(), String> {
         std::fs::create_dir_all(path).map_err(|e| e.to_string())
+    }
+    pub fn mv(src: &str, dst: &str) -> Result<(), String> {
+        std::fs::rename(src, dst).map_err(|e| e.to_string())
+    }
+    pub fn cp(src: &str, dst: &str) -> Result<(), String> {
+        std::fs::copy(src, dst).map_err(|_| format!("failed to copy '{src}' to '{dst}'"))?;
+        Ok(())
     }
 }
 
@@ -1207,6 +1228,31 @@ mod tests {
         file::mkdir(path).expect("mkdir");
         assert!(file::exists(path));
         file::rm(path).ok();
+    }
+
+    #[test]
+    fn test_file_mv() {
+        let src = "/tmp/__ash_test_mv_src__.txt";
+        let dst = "/tmp/__ash_test_mv_dst__.txt";
+        file::write(src, "hello").expect("write");
+        file::mv(src, dst).expect("mv");
+        assert!(!file::exists(src));
+        assert!(file::exists(dst));
+        assert_eq!(file::read(dst).unwrap(), "hello");
+        file::rm(dst).ok();
+    }
+
+    #[test]
+    fn test_file_cp() {
+        let src = "/tmp/__ash_test_cp_src__.txt";
+        let dst = "/tmp/__ash_test_cp_dst__.txt";
+        file::write(src, "hello").expect("write");
+        file::cp(src, dst).expect("cp");
+        assert!(file::exists(src));
+        assert!(file::exists(dst));
+        assert_eq!(file::read(dst).unwrap(), "hello");
+        file::rm(src).ok();
+        file::rm(dst).ok();
     }
 
     #[test]
