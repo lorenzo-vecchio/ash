@@ -1733,6 +1733,19 @@ impl Env {
                 closure: Env::default(),
             }),
         );
+        self.define(
+            "db.tx",
+            Value::Fn(FnValue {
+                name: Some("db.tx".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|_args| {
+                    Err(InterpError::runtime(
+                        "db.tx: internal dispatch error",
+                    ))
+                })),
+                closure: Env::default(),
+            }),
+        );
 
         // -- cache.* (in-memory key-value store with optional TTL) -----------
         {
@@ -3761,6 +3774,7 @@ impl Interpreter {
                             Some("all") => return self.builtin_all(args),
                             Some("go.spawn") => return self.builtin_go_spawn(args),
                             Some("http.serve") => return self.builtin_http_serve(args),
+                            Some("db.tx") => return self.builtin_db_tx(args),
                             _ => {}
                         }
                         f(&args)
@@ -4013,6 +4027,43 @@ impl Interpreter {
             let _ = request.respond(response);
         }
         Ok(Value::Unit)
+    }
+
+    /// db.tx(conn, fn) — execute a function within a SQLite transaction.
+    fn builtin_db_tx(&mut self, args: Vec<Value>) -> InterpResult<Value> {
+        if args.len() < 2 {
+            return Err(InterpError::runtime("db.tx requires (conn, fn)"));
+        }
+        let conn = match &args[0] {
+            Value::Connection(c) => c.clone(),
+            _ => return Err(InterpError::runtime("db.tx: first arg must be a connection")),
+        };
+        let f = args[1].clone();
+
+        // BEGIN
+        conn.lock()
+            .unwrap()
+            .execute("BEGIN", [])
+            .map_err(|e| InterpError::runtime(format!("db.tx: {e}")))?;
+
+        // Call the function with the connection
+        let result = self.call_fn(f, vec![args[0].clone()]);
+
+        match result {
+            Ok(val) => {
+                // COMMIT on success
+                conn.lock()
+                    .unwrap()
+                    .execute("COMMIT", [])
+                    .map_err(|e| InterpError::runtime(format!("db.tx commit: {e}")))?;
+                Ok(val)
+            }
+            Err(e) => {
+                // ROLLBACK on error
+                let _ = conn.lock().unwrap().execute("ROLLBACK", []);
+                Err(e)
+            }
+        }
     }
 
     // -- pattern matching -----------------------------------------------------

@@ -1224,12 +1224,10 @@ impl Codegen {
                 Ok((out, LLVMType::I64))
             }
             (HirType::Str, "contains") => {
-                // str.contains(s): call C strstr to find substring
                 if _args.is_empty() {
                     return Err(CodegenError::new("str.contains() requires a substring argument"));
                 }
                 let (sub_r, _) = self.emit_expr(&_args[0])?;
-                // Use C library strstr via runtime helper
                 let cmp = self.r();
                 self.i(format!(
                     "{cmp} = call i8* @strstr(i8* {obj_reg}, i8* {sub_r})"
@@ -1237,6 +1235,11 @@ impl Codegen {
                 let out = self.r();
                 self.i(format!("{out} = icmp ne i8* {cmp}, null"));
                 Ok((out, LLVMType::I1))
+            }
+            (HirType::Str, "split") => {
+                Err(CodegenError::new(
+                    "str.split() not yet in codegen — use ash run",
+                ))
             }
             _ => Err(CodegenError::new(format!(
                 "method '{method}' not yet in codegen for {hir_ty}"
@@ -1631,4 +1634,5 @@ mod tests {
         let ir = codegen("\"hello world\".contains(\"world\")");
         assert!(ir.contains("call i8* @strstr"), "should call strstr");
     }
+
 }
