@@ -591,9 +591,16 @@ fn go_fns() -> Vec<StdlibFn> {
         StdlibFn {
             namespace: "go",
             name: "chan",
-            params: &[],
+            params: &[("cap", "int")],
             ret: "Chan[T]",
-            doc: "Create a channel",
+            doc: "Create a channel (0 = unbuffered)",
+        },
+        StdlibFn {
+            namespace: "go",
+            name: "select",
+            params: &[("chans", "[Chan[T]]")],
+            ret: "{index: int, val: T}",
+            doc: "Wait on multiple channels, returns first available",
         },
     ]
 }

@@ -58,6 +58,7 @@ pub struct ChanInner {
     pub buf: std::sync::Mutex<VecDeque<Value>>,
     pub cvar: std::sync::Condvar,
     pub cap: usize,
+    pub closed: std::sync::atomic::AtomicBool,
 }
 
 impl ChanHandle {
@@ -67,62 +68,94 @@ impl ChanHandle {
                 buf: std::sync::Mutex::new(VecDeque::new()),
                 cvar: std::sync::Condvar::new(),
                 cap: capacity,
+                closed: std::sync::atomic::AtomicBool::new(false),
             }),
         }
     }
     pub fn capacity(&self) -> usize {
         self.inner.cap
     }
-    pub fn send(&self, val: Value) {
+    pub fn send(&self, val: Value) -> Result<(), String> {
         let inner = &self.inner;
+        if inner.closed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("send on closed channel".into());
+        }
         let mut buf = inner.buf.lock().unwrap();
-        // For unbuffered (cap=0), we block until someone receives.
-        // For buffered, we block if the buffer is full.
+        if inner.closed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("send on closed channel".into());
+        }
         if inner.cap == 0 {
-            // Unbuffered: wait until buffer is empty (someone will recv)
             while !buf.is_empty() {
+                if inner.closed.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err("send on closed channel".into());
+                }
                 buf = inner.cvar.wait(buf).unwrap();
             }
         } else {
             while buf.len() >= inner.cap {
+                if inner.closed.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err("send on closed channel".into());
+                }
                 buf = inner.cvar.wait(buf).unwrap();
             }
         }
         buf.push_back(val);
         inner.cvar.notify_one();
+        Ok(())
     }
-    pub fn recv(&self) -> Value {
+    pub fn recv(&self) -> Result<Option<Value>, String> {
         let inner = &self.inner;
         let mut buf = inner.buf.lock().unwrap();
-        while buf.is_empty() {
+        loop {
+            if let Some(val) = buf.pop_front() {
+                inner.cvar.notify_one();
+                return Ok(Some(val));
+            }
+            if inner.closed.load(std::sync::atomic::Ordering::SeqCst) {
+                return Ok(None);
+            }
             buf = inner.cvar.wait(buf).unwrap();
         }
-        let val = buf.pop_front().unwrap();
-        inner.cvar.notify_one();
-        val
     }
-    pub fn try_send(&self, val: Value) -> bool {
+    pub fn close(&self) {
         let inner = &self.inner;
         let mut buf = inner.buf.lock().unwrap();
+        buf.clear();
+        inner.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+        drop(buf);
+        inner.cvar.notify_all();
+    }
+    pub fn try_send(&self, val: Value) -> Result<bool, String> {
+        let inner = &self.inner;
+        if inner.closed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("send on closed channel".into());
+        }
+        let mut buf = inner.buf.lock().unwrap();
+        if inner.closed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("send on closed channel".into());
+        }
         if inner.cap == 0 {
             if !buf.is_empty() {
-                return false;
+                return Ok(false);
             }
         } else if buf.len() >= inner.cap {
-            return false;
+            return Ok(false);
         }
         buf.push_back(val);
         inner.cvar.notify_one();
-        true
+        Ok(true)
     }
-    pub fn try_recv(&self) -> Option<Value> {
+    pub fn try_recv(&self) -> Result<Option<Value>, String> {
         let inner = &self.inner;
         let mut buf = inner.buf.lock().unwrap();
-        let val = buf.pop_front();
-        if val.is_some() {
+        if let Some(val) = buf.pop_front() {
             inner.cvar.notify_one();
+            Ok(Some(val))
+        } else if inner.closed.load(std::sync::atomic::Ordering::SeqCst) {
+            Ok(None)
+        } else {
+            Ok(None)
         }
-        val
     }
     pub fn len(&self) -> usize {
         let inner = &self.inner;
@@ -130,6 +163,9 @@ impl ChanHandle {
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+    pub fn is_closed(&self) -> bool {
+        self.inner.closed.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -1489,6 +1525,41 @@ impl Env {
                         }
                     }
                     Ok(Value::List(results))
+                })),
+                closure: Env::default(),
+            }),
+        );
+        self.define(
+            "go.select",
+            Value::Fn(FnValue {
+                name: Some("go.select".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let chans = match args.first() {
+                        Some(Value::List(l)) => l.clone(),
+                        _ => return Err(InterpError::runtime("go.select requires a list of channels")),
+                    };
+                    loop {
+                        for (i, ch) in chans.iter().enumerate() {
+                            if let Value::Chan(ch) = ch {
+                                match ch.try_recv() {
+                                    Ok(Some(val)) => {
+                                        return Ok(Value::Map(vec![
+                                            (Value::Str("index".into()), Value::Int(i as i64)),
+                                            (Value::Str("val".into()), val),
+                                        ]));
+                                    }
+                                    Ok(None) => continue,
+                                    Err(e) => return Err(InterpError::runtime(e)),
+                                }
+                            } else {
+                                return Err(InterpError::runtime(
+                                    "go.select: list must contain channel handles",
+                                ));
+                            }
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
                 })),
                 closure: Env::default(),
             }),
@@ -3082,6 +3153,11 @@ impl Interpreter {
                 .get(field)
                 .cloned()
                 .ok_or_else(|| InterpError::runtime(format!("no field '{field}'"))),
+            Value::Map(pairs) => pairs
+                .iter()
+                .find(|(k, _)| matches!(k, Value::Str(s) if s == field))
+                .map(|(_, v)| v.clone())
+                .ok_or_else(|| InterpError::runtime(format!("no key '{field}' in map"))),
             _ => Err(InterpError::runtime(format!("no field '{field}' on {val}"))),
         }
     }
@@ -3360,26 +3436,35 @@ impl Interpreter {
                     .first()
                     .cloned()
                     .ok_or_else(|| InterpError::runtime("send() requires a value"))?;
-                ch.send(val);
+                ch.send(val).map_err(|e| InterpError::runtime(e))?;
                 Ok(Value::Unit)
             }
             (Value::Chan(ch), "recv") => {
-                let val = ch.recv();
-                Ok(val)
+                match ch.recv().map_err(|e| InterpError::runtime(e))? {
+                    Some(v) => Ok(v),
+                    None => Ok(Value::Option(None)),
+                }
+            }
+            (Value::Chan(ch), "close") => {
+                ch.close();
+                Ok(Value::Unit)
             }
             (Value::Chan(ch), "try_send") => {
                 let val = args
                     .first()
                     .cloned()
                     .ok_or_else(|| InterpError::runtime("try_send() requires a value"))?;
-                Ok(Value::Bool(ch.try_send(val)))
+                let ok = ch.try_send(val).map_err(|e| InterpError::runtime(e))?;
+                Ok(Value::Bool(ok))
             }
             (Value::Chan(ch), "try_recv") => {
-                Ok(ch.try_recv()
-                    .map(|v| Value::Option(Some(Box::new(v))))
-                    .unwrap_or(Value::Option(None)))
+                match ch.try_recv().map_err(|e| InterpError::runtime(e))? {
+                    Some(v) => Ok(Value::Option(Some(Box::new(v)))),
+                    None => Ok(Value::Option(None)),
+                }
             }
             (Value::Chan(ch), "len") => Ok(Value::Int(ch.len() as i64)),
+            (Value::Chan(ch), "is_closed") => Ok(Value::Bool(ch.is_closed())),
             // -- Fallback: look up method as a function in env --
             _ => {
                 let fn_val = self.env.get(method).ok_or_else(|| {
@@ -4278,5 +4363,83 @@ fn worker()
 go.spawn(worker)
 ch.recv()";
         assert_eq!(eval(src), Value::Int(42));
+    }
+
+    #[test]
+    fn test_chan_close_recv_none() {
+        let src = "\
+let ch = go.chan()
+ch.close()
+ch.recv()";
+        assert_eq!(eval(src), Value::Option(None));
+    }
+
+    #[test]
+    fn test_chan_close_send_err() {
+        let src = "\
+let ch = go.chan(1)
+ch.close()
+ch.send(1)";
+        assert!(eval_err(src).contains("closed"));
+    }
+
+    #[test]
+    fn test_chan_close_pending_recv() {
+        let src = "\
+let ch = go.chan()
+go.spawn(() => ch.close())
+ch.recv()";
+        assert_eq!(eval(src), Value::Option(None));
+    }
+
+    #[test]
+    fn test_chan_is_closed() {
+        let src = "\
+let ch = go.chan()
+ch.close()
+ch.is_closed()";
+        assert_eq!(eval(src), Value::Bool(true));
+    }
+
+    #[test]
+    fn test_chan_select_basic() {
+        let src = "\
+let ch1 = go.chan(1)
+ch1.send(42)
+let r = go.select([ch1])
+r.index";
+        assert_eq!(eval(src), Value::Int(0));
+    }
+
+    #[test]
+    fn test_chan_select_value() {
+        let src = "\
+let ch1 = go.chan(1)
+let ch2 = go.chan(1)
+ch2.send(99)
+let r = go.select([ch1, ch2])
+r.val";
+        assert_eq!(eval(src), Value::Int(99));
+    }
+
+    #[test]
+    fn test_chan_select_index() {
+        let src = "\
+let ch1 = go.chan(1)
+let ch2 = go.chan(1)
+ch1.send(10)
+let r = go.select([ch1, ch2])
+r.index";
+        assert_eq!(eval(src), Value::Int(0));
+    }
+
+    #[test]
+    fn test_chan_select_concurrent() {
+        let src = "\
+let ch = go.chan()
+go.spawn(() => ch.send(77))
+let r = go.select([ch])
+r.val";
+        assert_eq!(eval(src), Value::Int(77));
     }
 }
