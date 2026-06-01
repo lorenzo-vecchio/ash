@@ -191,6 +191,7 @@ impl Codegen {
         self.emit("declare i8* @ash_str_upper(i8*)");
         self.emit("declare i8* @ash_str_lower(i8*)");
         self.emit("declare i8* @ash_str_trim(i8*)");
+        self.emit("declare i8* @strstr(i8*, i8*)");
         // ash_runtime.c — map helpers
         self.emit("declare i8* @ash_map_new()");
         self.emit("declare void @ash_map_set(i8*, i8*, i8*)");
@@ -1222,6 +1223,21 @@ impl Codegen {
                 ));
                 Ok((out, LLVMType::I64))
             }
+            (HirType::Str, "contains") => {
+                // str.contains(s): call C strstr to find substring
+                if _args.is_empty() {
+                    return Err(CodegenError::new("str.contains() requires a substring argument"));
+                }
+                let (sub_r, _) = self.emit_expr(&_args[0])?;
+                // Use C library strstr via runtime helper
+                let cmp = self.r();
+                self.i(format!(
+                    "{cmp} = call i8* @strstr(i8* {obj_reg}, i8* {sub_r})"
+                ));
+                let out = self.r();
+                self.i(format!("{out} = icmp ne i8* {cmp}, null"));
+                Ok((out, LLVMType::I1))
+            }
             _ => Err(CodegenError::new(format!(
                 "method '{method}' not yet in codegen for {hir_ty}"
             ))),
@@ -1608,5 +1624,11 @@ mod tests {
     fn test_method_list_first() {
         let ir = codegen("[10, 20].first()");
         assert!(ir.contains("call i64 @ash_list_get"), "should call ash_list_get");
+    }
+
+    #[test]
+    fn test_method_str_contains() {
+        let ir = codegen("\"hello world\".contains(\"world\")");
+        assert!(ir.contains("call i8* @strstr"), "should call strstr");
     }
 }

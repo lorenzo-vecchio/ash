@@ -2493,6 +2493,64 @@ impl Env {
             }
         }
 
+        // -- ai.embed (text embeddings) -------------------------------------
+        self.define(
+            "ai.embed",
+            Value::Fn(FnValue {
+                name: Some("ai.embed".into()),
+                params: vec![],
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let api_key = std::env::var("OPENAI_API_KEY")
+                        .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
+                        .map_err(|_| {
+                            InterpError::runtime(
+                                "ai.embed: set OPENAI_API_KEY or ANTHROPIC_API_KEY",
+                            )
+                        })?;
+                    let text = args
+                        .first()
+                        .ok_or_else(|| {
+                            InterpError::runtime("ai.embed: requires a text string")
+                        })?
+                        .to_string();
+                    let model = args
+                        .get(1)
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "text-embedding-3-small".to_string());
+
+                    let body = serde_json::json!({
+                        "model": model,
+                        "input": text,
+                    })
+                    .to_string();
+
+                    let resp = ureq::post("https://api.openai.com/v1/embeddings")
+                        .set("Authorization", &format!("Bearer {api_key}"))
+                        .set("content-type", "application/json")
+                        .send_string(&body)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+
+                    let text = resp
+                        .into_string()
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+
+                    let json: serde_json::Value = serde_json::from_str(&text)
+                        .map_err(|e| InterpError::runtime(e.to_string()))?;
+
+                    let embedding = json["data"][0]["embedding"]
+                        .as_array()
+                        .ok_or_else(|| InterpError::runtime("ai.embed: unexpected response format"))?;
+
+                    Ok(Value::List(
+                        embedding
+                            .iter()
+                            .map(|v| Value::Float(v.as_f64().unwrap_or(0.0)))
+                            .collect(),
+                    ))
+                })),
+                closure: Env::default(),
+            }),
+        );
         // -- ai.json (structured JSON output from LLM) ----------------------
         self.define(
             "ai.json",
