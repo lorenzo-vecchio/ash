@@ -188,6 +188,9 @@ impl Codegen {
         self.emit("declare i8* @ash_str_from_float(double)");
         self.emit("declare i8* @ash_str_from_bool(i64)");
         self.emit("declare i64 @ash_str_len(i8*)");
+        self.emit("declare i8* @ash_str_upper(i8*)");
+        self.emit("declare i8* @ash_str_lower(i8*)");
+        self.emit("declare i8* @ash_str_trim(i8*)");
         // ash_runtime.c — map helpers
         self.emit("declare i8* @ash_map_new()");
         self.emit("declare void @ash_map_set(i8*, i8*, i8*)");
@@ -538,7 +541,7 @@ impl Codegen {
                     }
                     // Method call on value
                     let (obj_reg, obj_ty) = self.emit_expr(obj)?;
-                    return self.emit_method_call(&obj_reg, &obj_ty, field, args);
+                    return self.emit_method_call(&obj_reg, &obj_ty, field, args, &obj.ty);
                 }
                 // Named function call
                 if let HirExprKind::Var(name) = &callee.kind {
@@ -592,11 +595,11 @@ impl Codegen {
             HirExprKind::PropagateErr(e) => self.emit_expr(e),
             HirExprKind::SafeField { obj, field } => {
                 let (reg, ty) = self.emit_expr(obj)?;
-                self.emit_method_call(&reg, &ty, field, &[])
+                self.emit_method_call(&reg, &ty, field, &[], &obj.ty)
             }
             HirExprKind::Field { obj, field } => {
                 let (reg, ty) = self.emit_expr(obj)?;
-                self.emit_method_call(&reg, &ty, field, &[])
+                self.emit_method_call(&reg, &ty, field, &[], &obj.ty)
             }
             HirExprKind::List(items) => {
                 // Allocate a new AshList and push each element
@@ -1135,18 +1138,64 @@ impl Codegen {
     fn emit_method_call(
         &mut self,
         obj_reg: &str,
-        obj_ty: &LLVMType,
+        _obj_ty: &LLVMType,
         method: &str,
         _args: &[HirExpr],
+        hir_ty: &HirType,
     ) -> CResult<(String, LLVMType)> {
-        match (obj_ty, method) {
-            (LLVMType::Ptr, "len") => {
+        // Use the HIR type to differentiate between string and list (both are i8* at LLVM level)
+        match (hir_ty, method) {
+            // String methods
+            (HirType::Str, "len") => {
                 let out = self.r();
                 self.i(format!("{out} = call i64 @strlen(i8* {obj_reg})"));
                 Ok((out, LLVMType::I64))
             }
+            (HirType::Str, "upper") => {
+                let out = self.r();
+                self.i(format!("{out} = call i8* @ash_str_upper(i8* {obj_reg})"));
+                Ok((out, LLVMType::Ptr))
+            }
+            (HirType::Str, "lower") => {
+                let out = self.r();
+                self.i(format!("{out} = call i8* @ash_str_lower(i8* {obj_reg})"));
+                Ok((out, LLVMType::Ptr))
+            }
+            (HirType::Str, "trim") => {
+                let out = self.r();
+                self.i(format!("{out} = call i8* @ash_str_trim(i8* {obj_reg})"));
+                Ok((out, LLVMType::Ptr))
+            }
+            // List methods
+            (HirType::List(_), "len") => {
+                let out = self.r();
+                self.i(format!(
+                    "{out} = call i64 @ash_list_len(i8* {obj_reg})"
+                ));
+                Ok((out, LLVMType::I64))
+            }
+            (HirType::List(_), "first") => {
+                let out = self.r();
+                self.i(format!(
+                    "{out} = call i64 @ash_list_get(i8* {obj_reg}, i64 0)"
+                ));
+                Ok((out, LLVMType::I64))
+            }
+            (HirType::List(_), "last") => {
+                let len_reg = self.r();
+                self.i(format!(
+                    "{len_reg} = call i64 @ash_list_len(i8* {obj_reg})"
+                ));
+                let idx = self.r();
+                self.i(format!("{idx} = sub i64 {len_reg}, 1"));
+                let out = self.r();
+                self.i(format!(
+                    "{out} = call i64 @ash_list_get(i8* {obj_reg}, i64 {idx})"
+                ));
+                Ok((out, LLVMType::I64))
+            }
             _ => Err(CodegenError::new(format!(
-                "method '{method}' on {obj_ty} not yet in codegen"
+                "method '{method}' not yet in codegen for {hir_ty}"
             ))),
         }
     }
@@ -1495,5 +1544,41 @@ mod tests {
             ir.contains("__cap_a") && ir.contains("__cap_b"),
             "both captured vars should appear"
         );
+    }
+
+    #[test]
+    fn test_method_str_len() {
+        let ir = codegen("\"hello\".len()");
+        assert!(ir.contains("call i64 @strlen"), "should call strlen");
+    }
+
+    #[test]
+    fn test_method_str_upper() {
+        let ir = codegen("\"hello\".upper()");
+        assert!(ir.contains("call i8* @ash_str_upper"), "should call ash_str_upper");
+    }
+
+    #[test]
+    fn test_method_str_lower() {
+        let ir = codegen("\"HELLO\".lower()");
+        assert!(ir.contains("call i8* @ash_str_lower"), "should call ash_str_lower");
+    }
+
+    #[test]
+    fn test_method_str_trim() {
+        let ir = codegen("\"  hi  \".trim()");
+        assert!(ir.contains("call i8* @ash_str_trim"), "should call ash_str_trim");
+    }
+
+    #[test]
+    fn test_method_list_len() {
+        let ir = codegen("[1, 2, 3].len()");
+        assert!(ir.contains("call i64 @ash_list_len"), "should call ash_list_len");
+    }
+
+    #[test]
+    fn test_method_list_first() {
+        let ir = codegen("[10, 20].first()");
+        assert!(ir.contains("call i64 @ash_list_get"), "should call ash_list_get");
     }
 }

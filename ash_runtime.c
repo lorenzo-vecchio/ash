@@ -77,6 +77,45 @@ long long ash_str_len(const char *s) {
     return (long long)strlen(s);
 }
 
+char *ash_str_upper(const char *s) {
+    size_t len = strlen(s);
+    char *out = malloc(len + 1);
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        out[i] = (c >= 'a' && c <= 'z') ? c - 32 : c;
+    }
+    out[len] = '\0';
+    return out;
+}
+
+char *ash_str_lower(const char *s) {
+    size_t len = strlen(s);
+    char *out = malloc(len + 1);
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        out[i] = (c >= 'A' && c <= 'Z') ? c + 32 : c;
+    }
+    out[len] = '\0';
+    return out;
+}
+
+char *ash_str_trim(const char *s) {
+    const char *start = s;
+    while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r') start++;
+    if (*start == '\0') {
+        char *out = malloc(1);
+        out[0] = '\0';
+        return out;
+    }
+    const char *end = start + strlen(start) - 1;
+    while (end > start && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) end--;
+    size_t len = end - start + 1;
+    char *out = malloc(len + 1);
+    memcpy(out, start, len);
+    out[len] = '\0';
+    return out;
+}
+
 /* ─── Map (string-keyed, void* values) ──────────────────────────────────────*/
 
 typedef struct { char *key; void *val; } AshMapEntry;
