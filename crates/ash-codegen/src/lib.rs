@@ -80,6 +80,8 @@ struct Codegen {
     fn_sigs: HashMap<String, (Vec<LLVMType>, LLVMType)>,
     /// Name of the current basic block being emitted — used for phi predecessor tracking
     cur_block: String,
+    /// Maps variable name → (lifted function name, list of captured var names)
+    closure_map: HashMap<String, (String, Vec<String>)>,
 }
 
 impl Codegen {
@@ -93,6 +95,7 @@ impl Codegen {
             cur_ret: LLVMType::Void,
             fn_sigs: HashMap::new(),
             cur_block: "entry".into(),
+            closure_map: HashMap::new(),
         }
     }
     fn r(&mut self) -> String {
@@ -333,6 +336,11 @@ impl Codegen {
             HirStmtKind::Let {
                 name, ty, value, ..
             } => {
+                // Check if this is a closure being assigned — record in closure_map
+                if let HirExprKind::Closure { fn_id, captures } = &value.kind {
+                    self.closure_map
+                        .insert(name.clone(), (fn_id.clone(), captures.clone()));
+                }
                 let (reg, vty) = self.emit_expr(value)?;
                 // Use storage type for alloca (i1 for bool), ABI type for the def
                 let _abi_ty = if *ty == HirType::Unknown {
@@ -354,6 +362,13 @@ impl Codegen {
                 Ok(None)
             }
             HirStmtKind::Assign { target, value } => {
+                // Check if this is a closure being assigned — record in closure_map
+                if let HirExprKind::Var(name) = &target.kind {
+                    if let HirExprKind::Closure { fn_id, captures } = &value.kind {
+                        self.closure_map
+                            .insert(name.clone(), (fn_id.clone(), captures.clone()));
+                    }
+                }
                 let (reg, vty) = self.emit_expr(value)?;
                 if let HirExprKind::Var(name) = &target.kind {
                     if let Some((slot, slot_ty)) = self.get_var(name).cloned() {
@@ -1022,10 +1037,17 @@ impl Codegen {
                 Ok((out, LLVMType::I64))
             }
             _ => {
+                // Check if this name is a closure variable — redirect to lifted function
+                let (actual_name, extra_captures) = self
+                    .closure_map
+                    .get(name)
+                    .map(|(fn_id, caps)| (fn_id.clone(), caps.clone()))
+                    .unwrap_or((name.to_string(), vec![]));
+
                 // User-defined function — use registered signature for return type
                 let ret_ty = self
                     .fn_sigs
-                    .get(name)
+                    .get(&actual_name)
                     .map(|(_, r)| r.clone())
                     .unwrap_or_else(|| {
                         // Fall back to hint if not registered (builtins etc)
@@ -1040,9 +1062,21 @@ impl Codegen {
                     let (r, t) = self.emit_expr(a)?;
                     arg_strs.push(format!("{t} {r}"));
                 }
+                // Append captured variable values as extra arguments
+                for cap_name in &extra_captures {
+                    if let Some((slot, ty)) = self.get_var(cap_name).cloned() {
+                        let r = self.r();
+                        self.i(format!("{r} = load {ty}, {ty}* {slot}"));
+                        arg_strs.push(format!("{ty} {r}"));
+                    } else {
+                        // Capture not in scope — pass zero
+                        let ty = LLVMType::I64;
+                        arg_strs.push(format!("{ty} 0"));
+                    }
+                }
                 let out = self.r();
                 self.i(format!(
-                    "{out} = call {ret_ty} @{name}({})",
+                    "{out} = call {ret_ty} @{actual_name}({})",
                     arg_strs.join(", ")
                 ));
                 Ok((out, ret_ty))
@@ -1421,6 +1455,45 @@ mod tests {
         assert!(
             ir.contains("call i64 @fib("),
             "fib should call itself with i64"
+        );
+    }
+
+    #[test]
+    fn test_lambda_no_capture() {
+        let ir = codegen("f = x => x * 2\nf(5)");
+        assert!(ir.contains("@__lambda_1"), "lifted lambda should exist");
+        assert!(
+            ir.contains("call i64 @__lambda_1("),
+            "should call lifted lambda"
+        );
+    }
+
+    #[test]
+    fn test_lambda_with_capture() {
+        let ir = codegen("let n = 10\nlet f = x => x + n\nf(5)");
+        assert!(ir.contains("@__lambda_1"), "lifted lambda should exist");
+        assert!(
+            ir.contains("p___cap_n"),
+            "captured variable should appear in params"
+        );
+        // Check that the call passes the captured value
+        assert!(
+            ir.contains("call i64 @__lambda_1("),
+            "should call lifted lambda"
+        );
+        // Check that the variable n is loaded (not a literal) for the capture
+        assert!(
+            ir.contains("load i64"),
+            "should load captured variable from slot"
+        );
+    }
+
+    #[test]
+    fn test_lambda_with_capture_chain() {
+        let ir = codegen("let a = 1\nlet b = 2\nlet f = x => x + a + b\nf(3)");
+        assert!(
+            ir.contains("__cap_a") && ir.contains("__cap_b"),
+            "both captured vars should appear"
         );
     }
 }

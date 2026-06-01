@@ -252,6 +252,136 @@ pub struct HirProgram {
     pub lifted: Vec<HirFn>,
 }
 
+// ─── Free variable collection ────────────────────────────────────────────────
+
+/// Result of free-variable analysis.
+pub struct FreeVars {
+    /// Variables that are read (used) but not bound by this expression.
+    pub uses: Vec<String>,
+}
+
+/// Collect all variables that are used in a HIR expression, excluding those defined
+/// by `let` bindings within the expression itself.
+pub fn collect_free_expr(expr: &HirExpr) -> Vec<String> {
+    let mut ctx = FreeVarCtx::default();
+    ctx.visit_expr(expr);
+    ctx.uses.into_iter().collect()
+}
+
+#[derive(Default)]
+struct FreeVarCtx {
+    uses: Vec<String>,
+    bound: std::collections::HashSet<String>,
+}
+
+impl FreeVarCtx {
+    fn visit_expr(&mut self, expr: &HirExpr) {
+        match &expr.kind {
+            HirExprKind::Var(name) => {
+                if !self.bound.contains(name) {
+                    self.uses.push(name.clone());
+                }
+            }
+            HirExprKind::BinOp { lhs, rhs, .. } => {
+                self.visit_expr(lhs);
+                self.visit_expr(rhs);
+            }
+            HirExprKind::UnOp { expr, .. } => self.visit_expr(expr),
+            HirExprKind::Call { callee, args } => {
+                self.visit_expr(callee);
+                for a in args {
+                    self.visit_expr(a);
+                }
+            }
+            HirExprKind::Field { obj, .. } => self.visit_expr(obj),
+            HirExprKind::SafeField { obj, .. } => self.visit_expr(obj),
+            HirExprKind::Index { obj, index } => {
+                self.visit_expr(obj);
+                self.visit_expr(index);
+            }
+            HirExprKind::If { cond, then, else_ } => {
+                self.visit_expr(cond);
+                self.visit_block(then);
+                if let Some(e) = else_ {
+                    self.visit_expr(e);
+                }
+            }
+            HirExprKind::Match { scrutinee, arms } => {
+                self.visit_expr(scrutinee);
+                for arm in arms {
+                    for (_, _) in &arm.bindings {
+                        // bindings are local to the arm
+                    }
+                    self.visit_expr(&arm.body);
+                }
+            }
+            HirExprKind::Block(block) => self.visit_block(block),
+            HirExprKind::Closure { .. } => {}
+            HirExprKind::Await(e) => self.visit_expr(e),
+            HirExprKind::PropagateErr(e) => self.visit_expr(e),
+            HirExprKind::UnwrapOr { val, default } => {
+                self.visit_expr(val);
+                self.visit_expr(default);
+            }
+            HirExprKind::List(items) => {
+                for i in items {
+                    self.visit_expr(i);
+                }
+            }
+            HirExprKind::Map(pairs) => {
+                for (k, v) in pairs {
+                    self.visit_expr(k);
+                    self.visit_expr(v);
+                }
+            }
+            HirExprKind::Tuple(items) => {
+                for i in items {
+                    self.visit_expr(i);
+                }
+            }
+            HirExprKind::Int(_)
+            | HirExprKind::Float(_)
+            | HirExprKind::Bool(_)
+            | HirExprKind::Str(_) => {}
+        }
+    }
+
+    fn visit_block(&mut self, block: &HirBlock) {
+        for s in &block.stmts {
+            self.visit_stmt(s);
+        }
+    }
+
+    fn visit_stmt(&mut self, stmt: &HirStmt) {
+        match &stmt.kind {
+            HirStmtKind::Let { name, value, .. } => {
+                self.visit_expr(value);
+                self.bound.insert(name.clone());
+            }
+            HirStmtKind::Assign { target, value } => {
+                self.visit_expr(target);
+                self.visit_expr(value);
+            }
+            HirStmtKind::Return(expr) => {
+                if let Some(e) = expr {
+                    self.visit_expr(e);
+                }
+            }
+            HirStmtKind::While { cond, body } => {
+                self.visit_expr(cond);
+                self.visit_block(body);
+            }
+            HirStmtKind::For { var, iter, body, .. } => {
+                self.visit_expr(iter);
+                self.bound.insert(var.clone());
+                self.visit_block(body);
+            }
+            HirStmtKind::Panic(expr) => self.visit_expr(expr),
+            HirStmtKind::Expr(expr) => self.visit_expr(expr),
+        }
+    }
+}
+
 // ─── Type environment ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default)]
@@ -481,5 +611,47 @@ mod tests {
             lifted: vec![],
         };
         assert!(p.fns.is_empty() && p.lifted.is_empty());
+    }
+
+    #[test]
+    fn test_collect_free_vars_simple() {
+        let e = HirExpr::new(HirExprKind::Var("x".into()), HirType::Int);
+        let vars = collect_free_expr(&e);
+        assert_eq!(vars, vec!["x"]);
+    }
+
+    #[test]
+    fn test_collect_free_vars_binop() {
+        let l = HirExpr::new(HirExprKind::Var("a".into()), HirType::Int);
+        let r = HirExpr::new(HirExprKind::Var("b".into()), HirType::Int);
+        let e = HirExpr::new(
+            HirExprKind::BinOp { op: HirBinOp::Add, lhs: Box::new(l), rhs: Box::new(r) },
+            HirType::Int,
+        );
+        let vars = collect_free_expr(&e);
+        assert_eq!(vars.len(), 2);
+        assert!(vars.contains(&"a".to_string()));
+        assert!(vars.contains(&"b".to_string()));
+    }
+
+    #[test]
+    fn test_collect_free_vars_no_literals() {
+        let e = HirExpr::new(HirExprKind::Int(42), HirType::Int);
+        let vars = collect_free_expr(&e);
+        assert!(vars.is_empty());
+    }
+
+    #[test]
+    fn test_collect_free_vars_call() {
+        let callee = HirExpr::new(HirExprKind::Var("f".into()), HirType::Fn(vec![HirType::Int], Box::new(HirType::Int)));
+        let arg = HirExpr::new(HirExprKind::Var("x".into()), HirType::Int);
+        let e = HirExpr::new(
+            HirExprKind::Call { callee: Box::new(callee), args: vec![arg] },
+            HirType::Int,
+        );
+        let vars = collect_free_expr(&e);
+        assert_eq!(vars.len(), 2);
+        assert!(vars.contains(&"f".to_string()));
+        assert!(vars.contains(&"x".to_string()));
     }
 }

@@ -4,6 +4,7 @@
 
 use ash_parser::ast::*;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fmt;
 
 // --- Value --------------------------------------------------------------------
@@ -31,6 +32,8 @@ pub enum Value {
     Task(std::sync::Arc<std::sync::Mutex<Option<Value>>>),
     // Database connection handle (db.connect)
     Connection(std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>),
+    // Channel handle (go.chan)
+    Chan(ChanHandle),
     // Unit / void
     Unit,
 }
@@ -44,6 +47,91 @@ pub struct FnValue {
 }
 
 type NativeFn = std::sync::Arc<dyn Fn(&[Value]) -> InterpResult<Value> + Send + Sync>;
+
+#[derive(Debug, Clone)]
+pub struct ChanHandle {
+    pub inner: std::sync::Arc<ChanInner>,
+}
+
+#[derive(Debug)]
+pub struct ChanInner {
+    pub buf: std::sync::Mutex<VecDeque<Value>>,
+    pub cvar: std::sync::Condvar,
+    pub cap: usize,
+}
+
+impl ChanHandle {
+    pub fn new(capacity: usize) -> Self {
+        ChanHandle {
+            inner: std::sync::Arc::new(ChanInner {
+                buf: std::sync::Mutex::new(VecDeque::new()),
+                cvar: std::sync::Condvar::new(),
+                cap: capacity,
+            }),
+        }
+    }
+    pub fn capacity(&self) -> usize {
+        self.inner.cap
+    }
+    pub fn send(&self, val: Value) {
+        let inner = &self.inner;
+        let mut buf = inner.buf.lock().unwrap();
+        // For unbuffered (cap=0), we block until someone receives.
+        // For buffered, we block if the buffer is full.
+        if inner.cap == 0 {
+            // Unbuffered: wait until buffer is empty (someone will recv)
+            while !buf.is_empty() {
+                buf = inner.cvar.wait(buf).unwrap();
+            }
+        } else {
+            while buf.len() >= inner.cap {
+                buf = inner.cvar.wait(buf).unwrap();
+            }
+        }
+        buf.push_back(val);
+        inner.cvar.notify_one();
+    }
+    pub fn recv(&self) -> Value {
+        let inner = &self.inner;
+        let mut buf = inner.buf.lock().unwrap();
+        while buf.is_empty() {
+            buf = inner.cvar.wait(buf).unwrap();
+        }
+        let val = buf.pop_front().unwrap();
+        inner.cvar.notify_one();
+        val
+    }
+    pub fn try_send(&self, val: Value) -> bool {
+        let inner = &self.inner;
+        let mut buf = inner.buf.lock().unwrap();
+        if inner.cap == 0 {
+            if !buf.is_empty() {
+                return false;
+            }
+        } else if buf.len() >= inner.cap {
+            return false;
+        }
+        buf.push_back(val);
+        inner.cvar.notify_one();
+        true
+    }
+    pub fn try_recv(&self) -> Option<Value> {
+        let inner = &self.inner;
+        let mut buf = inner.buf.lock().unwrap();
+        let val = buf.pop_front();
+        if val.is_some() {
+            inner.cvar.notify_one();
+        }
+        val
+    }
+    pub fn len(&self) -> usize {
+        let inner = &self.inner;
+        inner.buf.lock().unwrap().len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
 
 pub enum FnBody {
     Ast(Vec<Stmt>),
@@ -107,6 +195,11 @@ impl fmt::Display for Value {
             Value::Fn(fv) => write!(f, "<fn {}>", fv.name.as_deref().unwrap_or("anonymous")),
             Value::Task(_) => write!(f, "<task>"),
             Value::Connection(_) => write!(f, "<db-connection>"),
+            Value::Chan(ch) => {
+                let len = ch.len();
+                let cap = ch.capacity();
+                write!(f, "<chan({len}/{cap})>")
+            }
         }
     }
 }
@@ -125,6 +218,7 @@ impl PartialEq for Value {
             (Value::List(a), Value::List(b)) => a == b,
             (Value::Tuple(a), Value::Tuple(b)) => a == b,
             (Value::Variant(na, fa), Value::Variant(nb, fb)) => na == nb && fa == fb,
+            (Value::Chan(a), Value::Chan(b)) => std::sync::Arc::ptr_eq(&a.inner, &b.inner),
             _ => false,
         }
     }
@@ -222,6 +316,10 @@ impl Env {
         } else {
             self.globals.lock().unwrap().insert(name.to_string(), val);
         }
+    }
+    /// Replace globals with those from another env (used by go.spawn to share state).
+    pub fn adopt_globals(&mut self, other: &Env) {
+        self.globals = Rc::clone(&other.globals);
     }
     fn register_stdlib(&mut self) {
         // println
@@ -1352,10 +1450,12 @@ impl Env {
             Value::Fn(FnValue {
                 name: Some("go.chan".into()),
                 params: vec![],
-                body: FnBody::Native(std::sync::Arc::new(|_args| {
-                    Err(InterpError::runtime(
-                        "go.chan: channels require interpreter-level integration — not yet supported",
-                    ))
+                body: FnBody::Native(std::sync::Arc::new(|args| {
+                    let cap = match args.first() {
+                        Some(Value::Int(n)) => *n as usize,
+                        _ => 0, // unbuffered by default
+                    };
+                    Ok(Value::Chan(ChanHandle::new(cap)))
                 })),
                 closure: Env::default(),
             }),
@@ -3254,6 +3354,32 @@ impl Interpreter {
                     pairs.iter().filter(|(k, _)| k != &key).cloned().collect(),
                 ))
             }
+            // -- Channel methods --
+            (Value::Chan(ch), "send") => {
+                let val = args
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| InterpError::runtime("send() requires a value"))?;
+                ch.send(val);
+                Ok(Value::Unit)
+            }
+            (Value::Chan(ch), "recv") => {
+                let val = ch.recv();
+                Ok(val)
+            }
+            (Value::Chan(ch), "try_send") => {
+                let val = args
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| InterpError::runtime("try_send() requires a value"))?;
+                Ok(Value::Bool(ch.try_send(val)))
+            }
+            (Value::Chan(ch), "try_recv") => {
+                Ok(ch.try_recv()
+                    .map(|v| Value::Option(Some(Box::new(v))))
+                    .unwrap_or(Value::Option(None)))
+            }
+            (Value::Chan(ch), "len") => Ok(Value::Int(ch.len() as i64)),
             // -- Fallback: look up method as a function in env --
             _ => {
                 let fn_val = self.env.get(method).ok_or_else(|| {
@@ -3443,12 +3569,17 @@ impl Interpreter {
             }
         };
 
+        // Capture globals so the spawned thread shares env with parent
+        let parent_env = self.env.clone();
+
         let slot: std::sync::Arc<std::sync::Mutex<Option<Value>>> =
             std::sync::Arc::new(std::sync::Mutex::new(None));
         let slot_clone = slot.clone();
 
         std::thread::spawn(move || {
             let mut interp = Interpreter::new();
+            // Share parent globals so closures see captured variables
+            interp.env.adopt_globals(&parent_env);
             let result = interp.call_fn(f, vec![]).unwrap_or(Value::Unit);
             *slot_clone.lock().unwrap() = Some(result);
         });
@@ -3750,6 +3881,11 @@ fn value_to_json(v: &Value) -> serde_json::Value {
         Value::Fn(_) => serde_json::Value::String("<fn>".to_string()),
         Value::Task(_) => serde_json::Value::String("<task>".to_string()),
         Value::Connection(_) => serde_json::Value::String("<connection>".to_string()),
+        Value::Chan(ch) => {
+            let mut map = serde_json::Map::new();
+            map.insert("chan".to_string(), serde_json::Value::Number(ch.len().into()));
+            serde_json::Value::Object(map)
+        }
     }
 }
 
@@ -4091,5 +4227,56 @@ mod tests {
     fn test_pipeline_with_lambda() {
         let src = "[1, 2, 3, 4] |> filter(x => x > 2)";
         assert_eq!(eval(src), Value::List(vec![Value::Int(3), Value::Int(4)]));
+    }
+
+    #[test]
+    fn test_chan_try_send_recv() {
+        let src = "let ch = go.chan()\nch.try_send(1)\nch.try_recv()";
+        assert_eq!(eval(src), Value::Option(Some(Box::new(Value::Int(1)))));
+    }
+
+    #[test]
+    fn test_chan_try_recv_empty() {
+        let src = "let ch = go.chan()\nch.try_recv()";
+        assert_eq!(eval(src), Value::Option(None));
+    }
+
+    #[test]
+    fn test_chan_buffered() {
+        let src = "let ch = go.chan(3)\nch.send(1)\nch.send(2)\nch.send(3)\nch.recv() + ch.recv() + ch.recv()";
+        assert_eq!(eval(src), Value::Int(6));
+    }
+
+    #[test]
+    fn test_chan_len() {
+        let src = "let ch = go.chan(5)\nch.send(1)\nch.send(2)\nch.len()";
+        assert_eq!(eval(src), Value::Int(2));
+    }
+
+    #[test]
+    fn test_chan_overfull_try_send() {
+        let src = "let ch = go.chan(2)\nch.send(1)\nch.send(2)\nch.try_send(3)";
+        assert_eq!(eval(src), Value::Bool(false));
+    }
+
+    #[test]
+    fn test_chan_concurrent() {
+        let src = "\
+let ch = go.chan()
+let worker = () => ch.send(99)
+go.spawn(worker)
+ch.recv()";
+        assert_eq!(eval(src), Value::Int(99));
+    }
+
+    #[test]
+    fn test_chan_spawn_send_recv() {
+        let src = "\
+let ch = go.chan(1)
+fn worker()
+    ch.send(42)
+go.spawn(worker)
+ch.recv()";
+        assert_eq!(eval(src), Value::Int(42));
     }
 }

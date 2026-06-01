@@ -959,7 +959,54 @@ impl TypeChecker {
 
                 let hbody_expr = self.lower_expr(body)?;
                 let ret = hbody_expr.ty.clone();
+
+                // Detect captured variables: variables referenced in the body
+                // that are NOT lambda parameters.
+                let param_names: std::collections::HashSet<String> =
+                    params.iter().map(|p| p.name.clone()).collect();
+                let body_vars: std::collections::HashSet<String> =
+                    ash_hir::collect_free_expr(&hbody_expr).into_iter().collect();
+                let mut captures: Vec<(String, HirType)> = vec![];
+
+                // Capture is only meaningful if the variable exists in the env
+                // (outer scope). Look up the type from the env BEFORE popping.
+                for v in &body_vars {
+                    if !param_names.contains(v) {
+                        if let Some(ty) = self.env.get(v).cloned() {
+                            captures.push((v.clone(), ty));
+                        }
+                    }
+                }
+                // Sort for deterministic output
+                captures.sort_by(|a, b| a.0.cmp(&b.0));
+
+                // Add captured variables as extra params to the lifted function
+                let mut lifted_params = hparams.clone();
+                let mut fn_param_tys: Vec<HirType> = hparams.iter().map(|p| p.ty.clone()).collect();
+                for (name, ty) in &captures {
+                    lifted_params.push(HirParam {
+                        name: format!("__cap_{}", name),
+                        ty: ty.clone(),
+                        mutable: false,
+                        borrow: false,
+                    });
+                    fn_param_tys.push(ty.clone());
+                }
+
+                // Rename captured variable references in the body so they match
+                // the lifted function's parameter names (__cap_<name>).
+                let mut hbody_expr = hbody_expr;
+                let rename_map: std::collections::HashMap<String, String> = captures
+                    .iter()
+                    .map(|(n, _)| (n.clone(), format!("__cap_{}", n)))
+                    .collect();
+                if !rename_map.is_empty() {
+                    rename_hir_expr(&mut hbody_expr, &rename_map);
+                }
+
                 self.env.pop();
+
+                let capture_names: Vec<String> = captures.iter().map(|(n, _)| n.clone()).collect();
 
                 let hbody = HirBlock {
                     stmts: vec![HirStmt {
@@ -968,22 +1015,22 @@ impl TypeChecker {
                     ty: ret.clone(),
                 };
                 let fn_ty = HirType::Fn(
-                    hparams.iter().map(|p| p.ty.clone()).collect(),
-                    Box::new(ret),
+                    fn_param_tys,
+                    Box::new(ret.clone()),
                 );
                 let hfn = HirFn {
                     name: fn_id.clone(),
                     generics: vec![],
-                    params: hparams,
-                    ret: fn_ty.clone(),
+                    params: lifted_params,
+                    ret,
                     body: hbody,
-                    captures: vec![],
+                    captures: captures.clone(),
                 };
                 self.lifted.push(hfn);
                 Ok(HirExpr::new(
                     HirExprKind::Closure {
                         fn_id,
-                        captures: vec![],
+                        captures: capture_names,
                     },
                     fn_ty,
                 ))
@@ -1760,5 +1807,130 @@ mod tests {
     fn test_multiple_fns_registered() {
         let hir = typecheck("fn square(x:int):int\n    x*x\nfn cube(x:int):int\n    x*square(x)");
         assert_eq!(hir.fns.len(), 2);
+    }
+
+    #[test]
+    fn test_lambda_capture_detected() {
+        let hir = typecheck("let n = 10\nlet f = x => x + n");
+        // Lambda should capture 'n'
+        assert_eq!(hir.lifted.len(), 1);
+        assert!(!hir.lifted[0].captures.is_empty(), "should capture 'n'");
+        // The capture param should be __cap_n
+        assert!(hir.lifted[0].params.iter().any(|p| p.name == "__cap_n"));
+        // The lifted body should reference __cap_n, not the original n
+        let first_stmt = &hir.lifted[0].body.stmts[0];
+        if let HirStmtKind::Return(Some(ret_expr)) = &first_stmt.kind {
+            let ret_vars = ash_hir::collect_free_expr(ret_expr);
+            assert!(
+                !ret_vars.contains(&"n".to_string()),
+                "original 'n' should be renamed"
+            );
+        }
+    }
+}
+
+// ─── HIR transformation helpers ──────────────────────────────────────────────
+
+/// Rename variable references in a HIR expression tree according to a rename map.
+fn rename_hir_expr(expr: &mut HirExpr, rename_map: &std::collections::HashMap<String, String>) {
+    match &mut expr.kind {
+        HirExprKind::Var(name) => {
+            if let Some(new_name) = rename_map.get(name) {
+                *name = new_name.clone();
+            }
+        }
+        HirExprKind::BinOp { lhs, rhs, .. } => {
+            rename_hir_expr(lhs, rename_map);
+            rename_hir_expr(rhs, rename_map);
+        }
+        HirExprKind::UnOp { expr, .. } => rename_hir_expr(expr, rename_map),
+        HirExprKind::Call { callee, args } => {
+            rename_hir_expr(callee, rename_map);
+            for a in args {
+                rename_hir_expr(a, rename_map);
+            }
+        }
+        HirExprKind::Field { obj, .. } => rename_hir_expr(obj, rename_map),
+        HirExprKind::SafeField { obj, .. } => rename_hir_expr(obj, rename_map),
+        HirExprKind::Index { obj, index } => {
+            rename_hir_expr(obj, rename_map);
+            rename_hir_expr(index, rename_map);
+        }
+        HirExprKind::If { cond, then, else_ } => {
+            rename_hir_expr(cond, rename_map);
+            for s in &mut then.stmts {
+                rename_hir_stmt(s, rename_map);
+            }
+            if let Some(e) = else_ {
+                rename_hir_expr(e, rename_map);
+            }
+        }
+        HirExprKind::Match { scrutinee, arms } => {
+            rename_hir_expr(scrutinee, rename_map);
+            for arm in arms {
+                rename_hir_expr(&mut arm.body, rename_map);
+            }
+        }
+        HirExprKind::Block(block) => {
+            for s in &mut block.stmts {
+                rename_hir_stmt(s, rename_map);
+            }
+        }
+        HirExprKind::Await(e) => rename_hir_expr(e, rename_map),
+        HirExprKind::PropagateErr(e) => rename_hir_expr(e, rename_map),
+        HirExprKind::UnwrapOr { val, default } => {
+            rename_hir_expr(val, rename_map);
+            rename_hir_expr(default, rename_map);
+        }
+        HirExprKind::List(items) => {
+            for i in items {
+                rename_hir_expr(i, rename_map);
+            }
+        }
+        HirExprKind::Map(pairs) => {
+            for (k, v) in pairs {
+                rename_hir_expr(k, rename_map);
+                rename_hir_expr(v, rename_map);
+            }
+        }
+        HirExprKind::Tuple(items) => {
+            for i in items {
+                rename_hir_expr(i, rename_map);
+            }
+        }
+        HirExprKind::Int(_)
+        | HirExprKind::Float(_)
+        | HirExprKind::Bool(_)
+        | HirExprKind::Str(_)
+        | HirExprKind::Closure { .. } => {}
+    }
+}
+
+fn rename_hir_stmt(stmt: &mut HirStmt, rename_map: &std::collections::HashMap<String, String>) {
+    match &mut stmt.kind {
+        HirStmtKind::Let { value, .. } => rename_hir_expr(value, rename_map),
+        HirStmtKind::Assign { target, value } => {
+            rename_hir_expr(target, rename_map);
+            rename_hir_expr(value, rename_map);
+        }
+        HirStmtKind::Return(expr) => {
+            if let Some(e) = expr {
+                rename_hir_expr(e, rename_map);
+            }
+        }
+        HirStmtKind::While { cond, body } => {
+            rename_hir_expr(cond, rename_map);
+            for s in &mut body.stmts {
+                rename_hir_stmt(s, rename_map);
+            }
+        }
+        HirStmtKind::For { iter, body, .. } => {
+            rename_hir_expr(iter, rename_map);
+            for s in &mut body.stmts {
+                rename_hir_stmt(s, rename_map);
+            }
+        }
+        HirStmtKind::Panic(expr) => rename_hir_expr(expr, rename_map),
+        HirStmtKind::Expr(expr) => rename_hir_expr(expr, rename_map),
     }
 }
