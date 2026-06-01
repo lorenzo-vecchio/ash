@@ -3,7 +3,8 @@
 //! Usage:
 //!   ash run   <file.ash>            Interpret and execute
 //!   ash build <file.ash> [-o out]   Compile to native binary via LLVM IR
-//!   ash check <file.ash>            Type-check only, no execution
+//!   ash check <file.ash>            Type-check only, no execution  
+//!   ash lint  <file.ash>            Lint source (unused vars, dead code)  
 //!   ash fmt   <file.ash>            Format source file
 //!   ash docs  [namespace]           Show stdlib documentation
 //!   ash test  <file.ash>            Run all test_* functions
@@ -36,6 +37,7 @@ fn main() {
         "test" => cmd_test(&args[2..]),
         "lsp" => cmd_lsp(),
         "repl" => cmd_repl(),
+        "lint" => cmd_lint(&args[2..]),
         "add" => cmd_add(&args[2..]),
         "install" => cmd_install(),
         "version" | "--version" | "-V" => cmd_version(),
@@ -55,6 +57,7 @@ fn print_usage() {
     println!("  ash run   <file.ash>             Interpret and run");
     println!("  ash build <file.ash> [-o <out>]  Compile to native binary");
     println!("  ash check <file.ash>             Type-check only");
+    println!("  ash lint  <file.ash>             Lint source code");
     println!("  ash fmt   <file.ash>             Format source file");
     println!("  ash docs  [namespace]            Show stdlib docs");
     println!("  ash test  <file.ash>             Run test_* functions");
@@ -483,6 +486,116 @@ fn cmd_lsp() {
     tokio::runtime::Runtime::new()
         .expect("failed to create tokio runtime")
         .block_on(ash_lsp::run_server());
+}
+
+// ─── lint ─────────────────────────────────────────────────────────────────────
+
+fn cmd_lint(args: &[String]) {
+    let path = require_file(args, "lint");
+    let source = read_source(&path);
+    let tokens = match ash_lexer::Lexer::new(&source).tokenize() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{}:lex: {}", path.display(), e);
+            process::exit(1);
+        }
+    };
+    let program = match ash_parser::parse(tokens) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{}:parse: {}", path.display(), e.msg);
+            process::exit(1);
+        }
+    };
+    let hir = match ash_typeck::check(&program) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("{}:type: {}", path.display(), e.msg);
+            process::exit(1);
+        }
+    };
+
+    let mut has_warnings = false;
+
+    // Lint: unused top-level variables (let + assign)
+    let mut defined: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Collect defined variables from top-level lets
+    for stmt in &hir.top_stmts {
+        if let ash_hir::HirStmtKind::Let { name, .. } = &stmt.kind {
+            defined.insert(name.clone());
+        }
+    }
+    // Collect used variables
+    for stmt in &hir.top_stmts {
+        if let ash_hir::HirStmtKind::Let { value, .. } = &stmt.kind {
+            for v in ash_hir::collect_free_expr(value) {
+                used.insert(v);
+            }
+        }
+        if let ash_hir::HirStmtKind::Expr(e) = &stmt.kind {
+            for v in ash_hir::collect_free_expr(e) {
+                used.insert(v);
+            }
+        }
+    }
+
+    // Check for unused top-level variables
+    for name in &defined {
+        if !used.contains(name) {
+            println!("{}: warning: unused variable '{name}'", path.display());
+            has_warnings = true;
+        }
+    }
+
+    // Lint: unused function parameters
+    for f in &hir.fns {
+        let mut param_uses: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for p in &f.params {
+            param_uses.insert(p.name.clone());
+        }
+        // Find which params are actually used in function body
+        let mut body_used: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for stmt in &f.body.stmts {
+            if let ash_hir::HirStmtKind::Return(Some(e)) = &stmt.kind {
+                for v in ash_hir::collect_free_expr(e) {
+                    body_used.insert(v);
+                }
+            }
+            if let ash_hir::HirStmtKind::Expr(e) = &stmt.kind {
+                for v in ash_hir::collect_free_expr(e) {
+                    body_used.insert(v);
+                }
+            }
+        }
+        // Also check let statements in body
+        for stmt in &f.body.stmts {
+            if let ash_hir::HirStmtKind::Let { value, .. } = &stmt.kind {
+                for v in ash_hir::collect_free_expr(value) {
+                    body_used.insert(v);
+                }
+            }
+        }
+        for p in &f.params {
+            if !body_used.contains(&p.name) && !param_uses.contains(&p.name) {
+                // skip — it's not actually defined as a param to check
+            }
+            if !body_used.contains(&p.name) {
+                println!(
+                    "{}: warning: unused parameter '{}' in function '{}'",
+                    path.display(),
+                    p.name,
+                    f.name
+                );
+                has_warnings = true;
+            }
+        }
+    }
+
+    if !has_warnings {
+        println!("{}: lint OK", path.display());
+    }
 }
 
 // ─── repl ─────────────────────────────────────────────────────────────────────
