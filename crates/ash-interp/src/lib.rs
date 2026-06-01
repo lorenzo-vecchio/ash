@@ -2,6 +2,7 @@
 //! Tree-walking interpreter. Evaluates AST nodes directly.
 //! Used for `ash run` — fast startup, great error messages, no compilation step.
 
+use ash_lexer::Span;
 use ash_parser::ast::*;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -2719,6 +2720,7 @@ impl Env {
 pub struct InterpError {
     pub kind: ErrorKind,
     pub msg: String,
+    pub span: Option<Span>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2735,19 +2737,42 @@ impl InterpError {
         InterpError {
             kind: ErrorKind::Runtime,
             msg: msg.into(),
+            span: None,
+        }
+    }
+    pub fn at(msg: impl Into<String>, span: &Span) -> Self {
+        InterpError {
+            kind: ErrorKind::Runtime,
+            msg: msg.into(),
+            span: Some(span.clone()),
         }
     }
     pub fn panic(msg: impl Into<String>) -> Self {
         InterpError {
             kind: ErrorKind::Panic,
             msg: msg.into(),
+            span: None,
         }
+    }
+    pub fn panic_at(msg: impl Into<String>, span: &Span) -> Self {
+        InterpError {
+            kind: ErrorKind::Panic,
+            msg: msg.into(),
+            span: Some(span.clone()),
+        }
+    }
+    pub fn with_span(mut self, span: &Span) -> Self {
+        if self.span.is_none() {
+            self.span = Some(span.clone());
+        }
+        self
     }
     #[allow(dead_code)]
     fn return_val(msg: impl Into<String>) -> Self {
         InterpError {
             kind: ErrorKind::Return,
             msg: msg.into(),
+            span: None,
         }
     }
 }
@@ -2790,7 +2815,7 @@ impl Interpreter {
     pub fn run(&mut self, program: &Program) -> InterpResult<Value> {
         let mut last = Value::Unit;
         for stmt in &program.stmts {
-            last = self.exec_stmt(stmt)?;
+            last = self.exec_stmt(stmt).map_err(|e| e.with_span(&stmt.span))?;
         }
         Ok(last)
     }
@@ -2832,6 +2857,7 @@ impl Interpreter {
                 Err(InterpError {
                     kind: ErrorKind::Return,
                     msg: String::new(),
+                    span: None,
                 })
             }
             StmtKind::Panic(expr) => {
@@ -2929,6 +2955,8 @@ impl Interpreter {
             // Use statements are resolved by the CLI loader before interpretation
             StmtKind::Use(_) => Ok(Value::Unit),
         }
+        // Attach source span to any runtime error
+        .map_err(|e| e.with_span(&stmt.span))
     }
 
     fn exec_block(&mut self, block: &Block) -> InterpResult<Value> {
@@ -3176,6 +3204,7 @@ impl Interpreter {
                     Value::Err(e) => Err(InterpError {
                         kind: ErrorKind::Propagated,
                         msg: e.to_string(),
+                        span: None,
                     }),
                     Value::Ok(v) => Ok(*v),
                     // User-defined Err-named variant
@@ -3184,12 +3213,14 @@ impl Interpreter {
                         Err(InterpError {
                             kind: ErrorKind::Propagated,
                             msg,
+                            span: None,
                         })
                     }
                     // Option None propagation (? operator semantics)
                     Value::Option(None) => Err(InterpError {
                         kind: ErrorKind::Propagated,
                         msg: "none".into(),
+                        span: None,
                     }),
                     Value::Option(Some(v)) => Ok(*v),
                     other => Ok(other),
@@ -3265,6 +3296,8 @@ impl Interpreter {
                 Ok(Value::Struct(name.clone(), field_map))
             }
         }
+        // Attach source span to any runtime error
+        .map_err(|e| e.with_span(&expr.span))
     }
 
     // -- binary operations ----------------------------------------------------

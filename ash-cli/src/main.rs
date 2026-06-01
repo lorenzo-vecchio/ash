@@ -106,7 +106,11 @@ fn cmd_run(args: &[String]) {
     match ash_interp::run(&program) {
         Ok(_) => {}
         Err(e) => {
-            eprintln!("{}:runtime: {}", path.display(), e.msg);
+            if let Some(span) = &e.span {
+                eprintln!("{}:{}:{}: runtime: {}", path.display(), span.line, span.col, e.msg);
+            } else {
+                eprintln!("{}:runtime: {}", path.display(), e.msg);
+            }
             process::exit(1);
         }
     }
@@ -451,7 +455,11 @@ fn cmd_test(args: &[String]) {
     // Load the program into an interpreter so all definitions are available
     let mut interp = ash_interp::Interpreter::new();
     if let Err(e) = interp.run_program(&program) {
-        eprintln!("{}:runtime: {}", path.display(), e.msg);
+        if let Some(span) = &e.span {
+            eprintln!("{}:{}:{}: runtime: {}", path.display(), span.line, span.col, e.msg);
+        } else {
+            eprintln!("{}:runtime: {}", path.display(), e.msg);
+        }
         process::exit(1);
     }
 
@@ -694,7 +702,11 @@ fn cmd_repl() {
                 }
             }
             Err(e) => {
-                eprintln!("  error: {}", e.msg);
+                if let Some(span) = &e.span {
+                    eprintln!("  error at line {}: {}", span.line, e.msg);
+                } else {
+                    eprintln!("  error: {}", e.msg);
+                }
             }
         }
 
