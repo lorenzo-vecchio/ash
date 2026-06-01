@@ -391,54 +391,63 @@ time_cmd() {
 echo "Timing ($RUNS runs each)..."
 echo ""
 
-declare -A TIMES LABELS ORDER
+# Use indexed arrays for bash 3.x compatibility (macOS default)
+TIMES=() LABELS=() KEYS=()
 
 idx=0
 
+IDX=0
+add_result() {
+    KEYS[$IDX]="$1"
+    TIMES[$IDX]="$2"
+    LABELS[$IDX]="$3"
+    IDX=$((IDX + 1))
+}
+
 if ! $SKIP_ASH_C; then
     echo -n "  Ash compiled...    "
-    TIMES[ash_c]=$(time_cmd "$TMP_DIR/compute_ash")
-    LABELS[ash_c]="Ash (compiled)"
-    echo "${TIMES[ash_c]}ms"
+    t=$(time_cmd "$TMP_DIR/compute_ash")
+    add_result "ash_c" "$t" "Ash (compiled)"
+    echo "${t}ms"
 fi
 
 if ! $SKIP_GO; then
     echo -n "  Go native...       "
-    TIMES[go]=$(time_cmd "$TMP_DIR/compute_go")
-    LABELS[go]="Go (native)"
-    echo "${TIMES[go]}ms"
+    t=$(time_cmd "$TMP_DIR/compute_go")
+    add_result "go" "$t" "Go (native)"
+    echo "${t}ms"
 fi
 
 echo -n "  Python...          "
-TIMES[python]=$(time_cmd "python3 $TMP_DIR/compute.py")
-LABELS[python]="Python (CPython)"
-echo "${TIMES[python]}ms"
+t=$(time_cmd "python3 $TMP_DIR/compute.py")
+add_result "python" "$t" "Python (CPython)"
+echo "${t}ms"
 
 if ! $SKIP_JAVA; then
     echo -n "  Java...            "
-    TIMES[java]=$(time_cmd "cd $TMP_DIR && java Compute")
-    LABELS[java]="Java (JVM)"
-    echo "${TIMES[java]}ms"
+    t=$(time_cmd "cd $TMP_DIR && java Compute")
+    add_result "java" "$t" "Java (JVM)"
+    echo "${t}ms"
 fi
 
 if ! $SKIP_JS; then
     echo -n "  JavaScript (Node)... "
-    TIMES[js]=$(time_cmd "node $TMP_DIR/compute.js")
-    LABELS[js]="JavaScript (Node)"
-    echo "${TIMES[js]}ms"
+    t=$(time_cmd "node $TMP_DIR/compute.js")
+    add_result "js" "$t" "JavaScript (Node)"
+    echo "${t}ms"
 fi
 
 if ! $SKIP_TS; then
     echo -n "  TypeScript (Deno)... "
-    TIMES[ts]=$(time_cmd "deno run $TMP_DIR/compute.ts")
-    LABELS[ts]="TypeScript (Deno)"
-    echo "${TIMES[ts]}ms"
+    t=$(time_cmd "deno run $TMP_DIR/compute.ts")
+    add_result "ts" "$t" "TypeScript (Deno)"
+    echo "${t}ms"
 fi
 
 echo -n "  Ash interpreted... "
-TIMES[ash_i]=$(time_cmd "$ASH run $TMP_DIR/compute.ash")
-LABELS[ash_i]="Ash (interpreted)"
-echo "${TIMES[ash_i]}ms"
+t=$(time_cmd "$ASH run $TMP_DIR/compute.ash")
+add_result "ash_i" "$t" "Ash (interpreted)"
+echo "${t}ms"
 
 # ── Results table ────────────────────────────────────────────────────────────
 
@@ -448,13 +457,16 @@ echo ""
 printf "%-28s %10s %14s\n" "Language" "ms/run" "vs Python"
 printf "%-28s %10s %14s\n" "--------" "------" "---------"
 
-PY=${TIMES[python]}
+# Find Python time
+PY=""
+for i in $(seq 0 $((IDX - 1))); do
+    if [ "${KEYS[$i]}" = "python" ]; then PY="${TIMES[$i]}"; fi
+done
 
 print_row() {
-    local key="$1"
-    [ -z "${TIMES[$key]}" ] && return
-    local ms="${TIMES[$key]}"
-    local label="${LABELS[$key]}"
+    local idx="$1"
+    local ms="${TIMES[$idx]}"
+    local label="${LABELS[$idx]}"
     if [ "$ms" -lt "$PY" ]; then
         local ratio=$(echo "scale=1; $PY / $ms" | bc 2>/dev/null || echo "?")
         printf "${GREEN}%-28s %10s %14s${NC}\n" "$label" "${ms}ms" "${ratio}x faster"
@@ -466,36 +478,26 @@ print_row() {
     fi
 }
 
-print_row ash_c
-print_row go
-print_row python
-print_row java
-print_row ash_i
+for i in $(seq 0 $((IDX - 1))); do
+    print_row "$i"
+done
 
 # ── Save results ──────────────────────────────────────────────────────────────
 RESULTS_FILE="$SCRIPT_DIR/results.json"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-declare -A RESULT_MAP
-RESULT_MAP["timestamp"]="$TIMESTAMP"
-RESULT_MAP["runs"]="$RUNS"
-
-for key in "${!TIMES[@]}"; do
-    RESULT_MAP["$key"]="${TIMES[$key]}"
-done
-
-# Build JSON manually (bash-friendly)
+# Build JSON
 RESULT_JSON="{\n  \"timestamp\": \"$TIMESTAMP\",\n  \"runs\": $RUNS,\n  \"results\": {"
 first=true
-for key in "${!TIMES[@]}"; do
+for i in $(seq 0 $((IDX - 1))); do
     $first || RESULT_JSON+=","
     first=false
-    RESULT_JSON+="\n    \"$key\": ${TIMES[$key]}"
+    RESULT_JSON+="\n    \"${KEYS[$i]}\": ${TIMES[$i]}"
 done
 RESULT_JSON+="\n  }\n}"
 
 # Append to results history
-echo -e "$RESULT_JSON" >> "$RESULTS_FILE"
+printf "$RESULT_JSON\n" >> "$RESULTS_FILE"
 echo ""
 echo "Results saved to $RESULTS_FILE"
 

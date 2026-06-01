@@ -37,6 +37,7 @@ fn main() {
         "test" => cmd_test(&args[2..]),
         "lsp" => cmd_lsp(),
         "repl" => cmd_repl(),
+        "init" => cmd_init(&args[2..]),
         "lint" => cmd_lint(&args[2..]),
         "add" => cmd_add(&args[2..]),
         "install" => cmd_install(),
@@ -58,6 +59,7 @@ fn print_usage() {
     println!("  ash build <file.ash> [-o <out>]  Compile to native binary");
     println!("  ash check <file.ash>             Type-check only");
     println!("  ash lint  <file.ash>             Lint source code");
+    println!("  ash init  <name>                 Scaffold a new project");
     println!("  ash fmt   <file.ash>             Format source file");
     println!("  ash docs  [namespace]            Show stdlib docs");
     println!("  ash test  <file.ash>             Run test_* functions");
@@ -489,6 +491,60 @@ fn cmd_test(args: &[String]) {
 }
 
 // ─── lsp ──────────────────────────────────────────────────────────────────────
+
+// ─── init ─────────────────────────────────────────────────────────────────────
+
+fn cmd_init(args: &[String]) {
+    let name = match args.first() {
+        Some(s) => s.clone(),
+        None => {
+            eprintln!("ash: 'init' requires a project name");
+            process::exit(1);
+        }
+    };
+
+    let dir = std::path::Path::new(&name);
+    if dir.exists() {
+        eprintln!("ash: directory '{name}' already exists");
+        process::exit(1);
+    }
+
+    std::fs::create_dir_all(dir.join("src")).unwrap_or_else(|e| {
+        eprintln!("ash: failed to create directory: {e}");
+        process::exit(1);
+    });
+
+    // Write main.ash
+    let main_src = format!(
+        r#""{name}" |> println
+
+fn main()
+    println("hello from {name}!")
+"#
+    );
+    std::fs::write(dir.join("src").join("main.ash"), main_src).unwrap_or_else(|e| {
+        eprintln!("ash: failed to write main.ash: {e}");
+        process::exit(1);
+    });
+
+    // Write ash.toml
+    let manifest = format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2025"
+"#
+    );
+    std::fs::write(dir.join("ash.toml"), manifest).unwrap_or_else(|e| {
+        eprintln!("ash: failed to write ash.toml: {e}");
+        process::exit(1);
+    });
+
+    println!("ash: created project '{name}'");
+    println!();
+    println!("  cd {name}");
+    println!("  ash run src/main.ash");
+}
 
 fn cmd_lsp() {
     tokio::runtime::Runtime::new()
