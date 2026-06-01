@@ -218,9 +218,75 @@ public class Compute {
 }
 JAVA_EOF
 
+cat > "$TMP_DIR/compute.js" << 'JS_EOF'
+function fib(n) {
+    if (n <= 1) return n;
+    return fib(n-1) + fib(n-2);
+}
+function sumRange(n) {
+    let total = 0;
+    for (let i = 0; i <= n; i++) total += i;
+    return total;
+}
+function collatz(n) {
+    let steps = 0;
+    while (n !== 1) { n = n % 2 === 0 ? n / 2 : n * 3 + 1; steps++; }
+    return steps;
+}
+function isPrime(n) {
+    if (n < 2) return false;
+    for (let i = 2; i * i <= n; i++)
+        if (n % i === 0) return false;
+    return true;
+}
+function countPrimes(limit) {
+    let count = 0;
+    for (let n = 2; n <= limit; n++)
+        if (isPrime(n)) count++;
+    return count;
+}
+console.log(fib(25).toString());
+console.log(sumRange(10000).toString());
+console.log(collatz(27).toString());
+console.log(countPrimes(1000).toString());
+JS_EOF
+
+cat > "$TMP_DIR/compute.ts" << 'TS_EOF'
+function fib(n: number): number {
+    if (n <= 1) return n;
+    return fib(n-1) + fib(n-2);
+}
+function sumRange(n: number): number {
+    let total = 0;
+    for (let i = 0; i <= n; i++) total += i;
+    return total;
+}
+function collatz(n: number): number {
+    let steps = 0;
+    while (n !== 1) { n = n % 2 === 0 ? n / 2 : n * 3 + 1; steps++; }
+    return steps;
+}
+function isPrime(n: number): boolean {
+    if (n < 2) return false;
+    for (let i = 2; i * i <= n; i++)
+        if (n % i === 0) return false;
+    return true;
+}
+function countPrimes(limit: number): number {
+    let count = 0;
+    for (let n = 2; n <= limit; n++)
+        if (isPrime(n)) count++;
+    return count;
+}
+console.log(fib(25).toString());
+console.log(sumRange(10000).toString());
+console.log(collatz(27).toString());
+console.log(countPrimes(1000).toString());
+TS_EOF
+
 # ── Compile native variants ──────────────────────────────────────────────────
 
-SKIP_GO=false; SKIP_JAVA=false; SKIP_ASH_C=false
+SKIP_GO=false; SKIP_JAVA=false; SKIP_ASH_C=false; SKIP_JS=false; SKIP_TS=false
 
 if ! command -v go &>/dev/null; then
     echo -e "${RED}Warning: go not found — skipping Go benchmark${NC}"
@@ -228,6 +294,22 @@ if ! command -v go &>/dev/null; then
 else
     echo -n "Compiling Go... "
     cd "$TMP_DIR" && go build -o compute_go compute.go && echo "done"
+fi
+
+if ! command -v node &>/dev/null; then
+    echo -e "${RED}Warning: node not found — skipping JavaScript benchmark${NC}"
+    SKIP_JS=true
+else
+    echo -n "JavaScript (Node.js)... done (no compilation needed)"
+    echo ""
+fi
+
+if ! command -v deno &>/dev/null; then
+    echo -e "${RED}Warning: deno not found — skipping TypeScript benchmark${NC}"
+    SKIP_TS=true
+else
+    echo -n "TypeScript (Deno)... done (no compilation needed)"
+    echo ""
 fi
 
 if ! command -v javac &>/dev/null; then
@@ -281,6 +363,8 @@ $SKIP_ASH_C  || check_output "Ash compiled"   "$("$TMP_DIR/compute_ash" 2>/dev/n
 $SKIP_GO     || check_output "Go"              "$("$TMP_DIR/compute_go"  2>/dev/null)"
 check_output "Python"          "$(python3 "$TMP_DIR/compute.py" 2>/dev/null)"
 $SKIP_JAVA   || check_output "Java"            "$(cd "$TMP_DIR" && java Compute 2>/dev/null)"
+$SKIP_JS     || check_output "JavaScript"      "$(node "$TMP_DIR/compute.js" 2>/dev/null)"
+$SKIP_TS     || check_output "TypeScript"      "$(deno run "$TMP_DIR/compute.ts" 2>/dev/null)"
 
 if $MISMATCH; then
     echo ""
@@ -337,6 +421,20 @@ if ! $SKIP_JAVA; then
     echo "${TIMES[java]}ms"
 fi
 
+if ! $SKIP_JS; then
+    echo -n "  JavaScript (Node)... "
+    TIMES[js]=$(time_cmd "node $TMP_DIR/compute.js")
+    LABELS[js]="JavaScript (Node)"
+    echo "${TIMES[js]}ms"
+fi
+
+if ! $SKIP_TS; then
+    echo -n "  TypeScript (Deno)... "
+    TIMES[ts]=$(time_cmd "deno run $TMP_DIR/compute.ts")
+    LABELS[ts]="TypeScript (Deno)"
+    echo "${TIMES[ts]}ms"
+fi
+
 echo -n "  Ash interpreted... "
 TIMES[ash_i]=$(time_cmd "$ASH run $TMP_DIR/compute.ash")
 LABELS[ash_i]="Ash (interpreted)"
@@ -373,6 +471,33 @@ print_row go
 print_row python
 print_row java
 print_row ash_i
+
+# ── Save results ──────────────────────────────────────────────────────────────
+RESULTS_FILE="$SCRIPT_DIR/results.json"
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+declare -A RESULT_MAP
+RESULT_MAP["timestamp"]="$TIMESTAMP"
+RESULT_MAP["runs"]="$RUNS"
+
+for key in "${!TIMES[@]}"; do
+    RESULT_MAP["$key"]="${TIMES[$key]}"
+done
+
+# Build JSON manually (bash-friendly)
+RESULT_JSON="{\n  \"timestamp\": \"$TIMESTAMP\",\n  \"runs\": $RUNS,\n  \"results\": {"
+first=true
+for key in "${!TIMES[@]}"; do
+    $first || RESULT_JSON+=","
+    first=false
+    RESULT_JSON+="\n    \"$key\": ${TIMES[$key]}"
+done
+RESULT_JSON+="\n  }\n}"
+
+# Append to results history
+echo -e "$RESULT_JSON" >> "$RESULTS_FILE"
+echo ""
+echo "Results saved to $RESULTS_FILE"
 
 echo ""
 
